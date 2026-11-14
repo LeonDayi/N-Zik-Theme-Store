@@ -136,10 +136,13 @@ def main():
         creator = creators.get(author["githubId"])
         if creator and creator["login"].casefold() != author["login"].casefold():
             raise ValueError(f"{folder}: manifest author and creator GitHub logins differ")
-        if (folder / "reviews.json").exists():
-            validate_reviews(folder, reviews_validator)
         if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
             raise ValueError(f"{folder}: manifest ID or revision differs from the catalog")
+
+    for reviews in (ROOT / "themes").glob("*/*/reviews.json"):
+        if not (reviews.parent / "manifest.json").is_file():
+            raise ValueError(f"{reviews}: missing revision manifest")
+        validate_reviews(reviews.parent, reviews_validator)
 
     print(f"Validated the v1 schemas, examples, {len(theme_ids)} published themes and {len(creators)} creators.")
 

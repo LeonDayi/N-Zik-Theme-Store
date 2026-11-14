@@ -11,4 +11,4 @@ Theme ID and revision, if applicable:
 
 - [ ] I ran the catalog validator.
 - [ ] My theme contains appearance settings only.
-- [ ] I have permission to publish the preview images and listed their license.
+- [ ] I have permission to publish the preview images under GPL-3.0-only.

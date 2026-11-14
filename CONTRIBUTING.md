@@ -18,4 +18,4 @@ Compute hashes with `sha256sum <path>` on Linux or `Get-FileHash <path> -Algorit
 
 ## Licensing
 
-Repository tooling and documentation use [GPL-3.0](LICENSE). Themes and their previews carry the license recorded in their manifest. Include any attribution and license notices required for the material you contribute.
+The Theme Store, its themes and their previews are released under [GPL-3.0-only](LICENSE). Include any attribution and license notices required for the material you contribute.

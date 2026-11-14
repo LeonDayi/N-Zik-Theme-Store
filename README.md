@@ -72,9 +72,6 @@ Run `uv run --no-project --with-requirements requirements-validation.txt python 
 <p align="center">
 <a href="https://github.com/NEVARLeVrai"><img src="https://avatars.githubusercontent.com/u/63956787?v=4" width="54" height="54" alt="NEVARLeVrai" title="NEVARLeVrai" /></a>
 </p>
-<!-- project-contributors:end -->
-
-See the [repository contributors](https://github.com/N-Zik-Group/N-Zik-Theme-Store/graphs/contributors).
 
 # 🎖️ Credits
 

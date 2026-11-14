@@ -74,7 +74,7 @@ Run `uv run --no-project --with-requirements requirements-validation.txt python 
 </p>
 <!-- project-contributors:end -->
 
-See the [repository contributors](https://github.com/N-Zik-Group/N-Zik-Theme-Store/graphs/contributors). The original presets were introduced by [aneesh1122](https://github.com/N-Zik-Group/N-Zik/commit/ea40544986).
+See the [repository contributors](https://github.com/N-Zik-Group/N-Zik-Theme-Store/graphs/contributors).
 
 # 🎖️ Credits
 

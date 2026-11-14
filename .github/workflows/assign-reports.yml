@@ -15,7 +15,27 @@ jobs:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const issue = { ...context.repo, issue_number: context.issue.number };
+            const current = context.payload.issue;
+            const issue = { ...context.repo, issue_number: current.number };
+            const target = /^<!-- nzik-report:[a-f0-9-]{36}:(?:theme|reviews:\d+|review:\d+:\d+) -->$/;
+            const marker = current.body?.split(/\r?\n/, 1)[0];
+            if (marker && target.test(marker)) {
+              const originals = await github.paginate(github.rest.issues.listForRepo, {
+                ...context.repo, state: 'all', creator: current.user.login, per_page: 100
+              });
+              const original = originals.filter(candidate =>
+                !candidate.pull_request && candidate.number < current.number &&
+                candidate.user?.id === current.user.id &&
+                candidate.body?.split(/\r?\n/, 1)[0] === marker
+              ).sort((a, b) => a.number - b.number)[0];
+              if (original) {
+                await github.rest.issues.createComment({
+                  ...issue, body: 'A report already exists for this target. Add your follow-up to #' + original.number + '.'
+                });
+                await github.rest.issues.update({ ...issue, state: 'closed', state_reason: 'not_planned' });
+                return;
+              }
+            }
             try {
               await github.rest.issues.createLabel({
                 ...context.repo, name: 'report', color: 'b60205',

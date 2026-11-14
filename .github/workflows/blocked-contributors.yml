@@ -39,7 +39,8 @@ jobs:
               'new creator profile': '1d76db',
               'update creator profile': '0052cc',
               'new theme': '0e8a16',
-              'theme update': '006b75'
+              'theme update': '006b75',
+              'theme review': '5319e7'
             };
             async function ensureLabel(name, color) {
               try {
@@ -62,6 +63,9 @@ jobs:
             const isSubmission = authorOwnsHead && pull.head.ref === `nzik/creator-profile-${pull.user.id}`;
             const isThemeSubmission = authorOwnsHead
               && /^nzik\/theme-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(pull.head.ref);
+            const reviewBranch = authorOwnsHead && /^nzik\/review-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})-([1-9]\d*)-([1-9]\d*)$/.exec(pull.head.ref);
+            const isReview = reviewBranch && reviewBranch[3] === String(pull.user.id);
+            const reviewPath = isReview ? `themes/${reviewBranch[1]}/${reviewBranch[2]}/reviews.json` : '';
             const labelAdded = event.action === 'labeled' ? event.label.name : '';
             if (labelAdded) {
               if ((!['accepted', 'refused', 'ban'].includes(labelAdded) && !Object.hasOwn(reasons, labelAdded)) || pull.merged) return;
@@ -72,7 +76,7 @@ jobs:
             }
             const themeLabels = ['new theme', 'theme update'];
             const isTheme = item => item.labels.some(label => themeLabels.includes(label.name));
-            if (event.action === 'closed' && ((!isSubmission && !isTheme(pull)) || !pull.merged)) return;
+            if (event.action === 'closed' && ((!isSubmission && !isReview && !isTheme(pull)) || !pull.merged)) return;
             const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
             if (current.merged && event.action !== 'closed') return;
             const currentLabels = new Set(current.labels.map(label => label.name));
@@ -99,6 +103,10 @@ jobs:
               const themes = new Set();
               for (const file of files) {
                 if (file.status === 'removed') continue;
+                if (isReview && file.filename === reviewPath) {
+                  types.add('theme review');
+                  continue;
+                }
                 if (/^creators\/\d+\/profile\.json$/.test(file.filename)) {
                   types.add(file.status === 'added' ? 'new creator profile' : 'update creator profile');
                 }
@@ -147,7 +155,9 @@ jobs:
                 if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
                   await github.rest.issues.createComment({
                     ...target,
-                    body: marker + '\n' + (isTheme(current)
+                    body: marker + '\n' + (isReview
+                      ? 'Your review was accepted and merged. Refresh the theme in N-Zik to see it.'
+                      : isTheme(current)
                       ? 'Your theme was accepted and merged. Refresh the Theme Store in N-Zik to view and download it.'
                       : 'Your creator profile was accepted and merged. Refresh the Theme Store in N-Zik to see it.')
                   });
@@ -166,7 +176,7 @@ jobs:
             if (list.schemaVersion !== 1 || !Array.isArray(list.accounts)) throw new Error('Invalid moderation list');
             let blocked = list.accounts.find(account => account.githubId === pull.user.id);
             if (labelAdded === 'accepted' && !blocked) {
-              if ((!isSubmission && !isTheme(current)) || current.state !== 'open'
+              if ((!isSubmission && !isReview && !isTheme(current)) || current.state !== 'open'
                   || current.draft || !currentLabels.has('accepted') || currentLabels.has('refused') || currentLabels.has('ban')) return;
               if (current.head.sha !== pull.head.sha) {
                 core.setFailed('The submission changed after approval. Review the new commit before accepting it.');
@@ -179,6 +189,41 @@ jobs:
               if (validation.workflow_runs[0]?.conclusion !== 'success') {
                 core.setFailed('Catalog validation must pass on the approved commit. Retry approval after the check succeeds.');
                 return;
+              }
+              if (isReview) {
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  ...context.repo, pull_number: pull.number, per_page: 100
+                });
+                if (files.length !== 1 || files[0].filename !== reviewPath ||
+                    !['added', 'modified'].includes(files[0].status)) {
+                  core.setFailed('A review submission must change only its revision reviews.json.');
+                  return;
+                }
+                async function readReviews(repository, revision, allowMissing) {
+                  try {
+                    const { data } = await github.rest.repos.getContent({
+                      owner: repository.owner.login, repo: repository.name, path: reviewPath, ref: revision
+                    });
+                    return JSON.parse(Buffer.from(data.content, 'base64').toString('utf8')).reviews;
+                  } catch (error) {
+                    if (allowMissing && error.status === 404) return [];
+                    throw error;
+                  }
+                }
+                const before = await readReviews(current.base.repo, current.base.sha, true);
+                const after = await readReviews(current.head.repo, current.head.sha, false);
+                const ours = row => row.author.githubId === pull.user.id;
+                const original = before.find(ours);
+                const submitted = after.filter(ours);
+                const others = rows => rows.filter(row => !ours(row)).map(row =>
+                  [row.author.githubId, row.author.login, row.kind, row.rating, row.comment]);
+                if (submitted.length !== 1 ||
+                    submitted[0].author.login.toLowerCase() !== pull.user.login.toLowerCase() ||
+                    submitted[0].kind !== (original?.kind ?? 'community') ||
+                    JSON.stringify(others(before)) !== JSON.stringify(others(after))) {
+                  core.setFailed('A review can only change the submitting account’s own review. Resubmit against current main.');
+                  return;
+                }
               }
               const { data: merge } = await github.rest.pulls.merge({
                 ...context.repo, pull_number: pull.number, sha: pull.head.sha
@@ -203,7 +248,7 @@ jobs:
               });
             }
             if (!blocked && decision !== 'refused') {
-              if ((isSubmission || isThemeSubmission) && current.state === 'open' && !current.labels.some(label => ['accepted', 'refused', 'ban'].includes(label.name))) {
+              if ((isSubmission || isThemeSubmission || isReview) && current.state === 'open' && !current.labels.some(label => ['accepted', 'refused', 'ban'].includes(label.name))) {
                 await status('in review');
               }
               return;
@@ -212,7 +257,7 @@ jobs:
               ? [...currentLabels].find(label => Object.hasOwn(reasons, label))
               : ''));
             let cleaned = false;
-            if (current.state === 'open' && (isSubmission || isThemeSubmission) && current.head.repo?.id === pull.head.repo.id
+            if (current.state === 'open' && (isSubmission || isThemeSubmission || isReview) && current.head.repo?.id === pull.head.repo.id
                 && current.head.ref === pull.head.ref && current.base.ref === ref) {
               const [owner, repo] = current.head.repo.full_name.split('/');
               const branch = 'heads/' + current.head.ref;

@@ -18,7 +18,7 @@
 
 # 🎨 Browse themes
 
-The [catalog index](themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files, license and minimum compatible N-Zik version. The six built-in presets are listed while release compatibility is pending.
+The [catalog index](themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. The six built-in presets are listed while release compatibility is pending.
 
 <div align="center">
 
@@ -78,4 +78,4 @@ See the [repository contributors](https://github.com/N-Zik-Group/N-Zik-Theme-Sto
 
 # 🎖️ Credits
 
-Made with ❤️ by the N-Zik Group community · Project license: GPLv3 - see [LICENSE](LICENSE). Each theme declares its own license in its manifest.
+Made with ❤️ by the N-Zik Group community · Project license: GPLv3 - see [LICENSE](LICENSE). The same license applies to the themes and their previews.

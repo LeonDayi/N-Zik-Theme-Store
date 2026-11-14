@@ -42,7 +42,7 @@
             }
           },
           "kind": {
-            "const": "maintainer"
+            "enum": ["maintainer", "community"]
           },
           "rating": {
             "type": "integer",

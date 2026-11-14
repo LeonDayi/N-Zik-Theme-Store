@@ -1,5 +1,5 @@
-name: 👷 Dev Bug report
-description: Report a Theme Store bug found in an N-Zik Dev build.
+name: 👷 Theme Store bug · Dev
+description: Report a bug in the Theme Store when using an N-Zik Dev build.
 title: "[Dev BUG]: "
 labels: ["bug"]
 assignees:

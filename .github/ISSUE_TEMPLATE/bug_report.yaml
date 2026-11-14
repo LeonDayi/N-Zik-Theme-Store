@@ -1,5 +1,5 @@
-name: 👾 Bug report
-description: Report a problem with the Theme Store catalog or a published theme.
+name: 👾 Theme Store bug
+description: Report a technical problem with the catalog, previews, downloads, or theme submission.
 title: "[BUG]: "
 labels: ["bug"]
 assignees:

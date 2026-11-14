@@ -1,5 +1,5 @@
-name: 🧪 Beta Bug report
-description: Report a Theme Store bug found in an N-Zik Beta build.
+name: 🧪 Theme Store bug · Beta
+description: Report a bug in the Theme Store when using an N-Zik Beta build.
 title: "[Beta BUG]: "
 labels: ["bug"]
 assignees:

@@ -1,5 +1,5 @@
-name: 💡 Feature request
-description: Suggest an idea to help us improve the N-Zik Theme Store
+name: 💡 Theme Store feature request
+description: Suggest an improvement to the Theme Store catalog, its creator tools, or how themes are used.
 title: "[Feature]: "
 labels: ["enhancement"]
 assignees:
@@ -11,8 +11,8 @@ body:
         ****
         ### 💡 READ BEFORE SUBMITTING 💡
 
-        Thanks for taking the time to suggest an idea for the N-Zik Theme Store!
-        In-depth details will help us understand your vision and implement it better.
+        Use this form for features specific to the N-Zik Theme Store.
+        For playback, library, or other Android app features, use the [N-Zik Android tracker](https://github.com/N-Zik-Group/N-Zik/issues/new/choose).
 
   - type: checkboxes
     id: prerequisites

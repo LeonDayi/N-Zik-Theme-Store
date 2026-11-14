@@ -5,6 +5,7 @@ on:
     types: [opened]
 
 permissions:
+  contents: read
   issues: write
 
 jobs:
@@ -17,9 +18,33 @@ jobs:
           script: |
             const current = context.payload.issue;
             const issue = { ...context.repo, issue_number: current.number };
-            const target = /^<!-- nzik-report:[a-f0-9-]{36}:(?:theme|reviews:\d+|review:\d+:\d+) -->$/;
+            const target = /^<!-- nzik-report:([a-f0-9-]{36}):(theme|reviews:\d+|review:\d+:\d+) -->$/;
             const marker = current.body?.split(/\r?\n/, 1)[0];
-            if (marker && target.test(marker)) {
+            const match = marker?.match(target);
+            const read = async path => {
+              const { data } = await github.rest.repos.getContent({ ...context.repo, path, ref: 'main' });
+              return JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+            };
+            const close = async () => {
+              await github.rest.issues.update({ ...issue, state: 'closed', state_reason: 'not_planned' });
+            };
+            const blocked = await read('creators/blocked.json');
+            if (blocked.accounts.some(account => account.githubId === current.user.id)) {
+              await close();
+              return;
+            }
+            if (match?.[2] === 'theme') {
+              const index = await read('themes/index.json');
+              const revisions = index.themes.filter(theme => theme.themeId === match[1]);
+              const latest = revisions.sort((a, b) => b.revision - a.revision)[0];
+              const manifest = latest && await read('themes/' + latest.themeId + '/' + latest.revision + '/manifest.json');
+              const verified = await read('creators/verified.json');
+              if (!manifest || verified.githubIds.includes(manifest.author.githubId)) {
+                await close();
+                return;
+              }
+            }
+            if (match) {
               const originals = await github.paginate(github.rest.issues.listForRepo, {
                 ...context.repo, state: 'all', creator: current.user.login, per_page: 100
               });
@@ -32,7 +57,7 @@ jobs:
                 await github.rest.issues.createComment({
                   ...issue, body: 'A report already exists for this target. Add your follow-up to #' + original.number + '.'
                 });
-                await github.rest.issues.update({ ...issue, state: 'closed', state_reason: 'not_planned' });
+                await close();
                 return;
               }
             }

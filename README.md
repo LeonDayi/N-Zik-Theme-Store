@@ -72,6 +72,10 @@ Run `uv run --no-project --with-requirements requirements-validation.txt python 
 
 [![Blocked contributors and moderation](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/blocked-contributors.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/blocked-contributors.yml)
 
+[Repository labels](https://github.com/N-Zik-Group/N-Zik-Theme-Store/labels)
+
+Submissions use `in review`, `accepted`, `merged`, `refused` or `ban`. Refusals and bans use a `reason:` label. Catalog reports are tagged `report` and assigned to a maintainer.
+
 # 👥 Contributors
 
 <!-- project-contributors:start -->

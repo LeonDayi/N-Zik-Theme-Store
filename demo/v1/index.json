@@ -3,11 +3,11 @@
   "assets": [
     {
       "name": "atlas.jpg",
-      "sha256": "7600f7d2ecec75e525a2895a2f00f1c2231fde8b25cc9e37adef7250ef0848a8"
+      "sha256": "abd0fca4a53857ceab8c6b3620dbb5f5b0232de31d69db76df903f6cc5203b24"
     },
     {
       "name": "signal.jpg",
-      "sha256": "0e45c06317f1f6b318739dd2ba5276ce95adb7d40f291c08aa7722e57362785b"
+      "sha256": "1fc8333e75cf411c22d999493703bbb049ed1acb69d7f57fa9d89f976685f84f"
     },
     {
       "name": "silence.mp3",
@@ -15,11 +15,11 @@
     },
     {
       "name": "tide.jpg",
-      "sha256": "22d9883aa590c8b0ab4932d724cb9cf9efcd5b6afff18b37a32b89b335b8f988"
+      "sha256": "1d4a36ad822bb30f30882b10e54972470bf91435d13322dee674dbe4bf975531"
     },
     {
       "name": "violet.jpg",
-      "sha256": "6e7533eac50415b87c81766a199b188d56799b85479cb686a1c77e484b89dfbc"
+      "sha256": "a1e926d520015faaa2e631d9b086b4b5fe58ba6515a67d047b960b2105a7d1e6"
     }
   ]
 }

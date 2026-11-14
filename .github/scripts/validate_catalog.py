@@ -5,7 +5,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def load_json(path):
@@ -93,7 +93,33 @@ def validate_creator(folder, validator, expected_id=None):
     return profile
 
 
+def validate_demo_assets():
+    demo = ROOT / "demo" / "v1"
+    palettes = ("atlas", "signal", "tide", "violet", "ember")
+    covers = {f"{name}.jpg" for name in palettes}
+    banners = {f"banners/{name}.webp" for name in palettes}
+
+    def validate_assets(entries, expected):
+        file_names = [entry["name"] for entry in entries]
+        if len(file_names) != len(expected) or set(file_names) != expected:
+            raise ValueError("demo: index does not match the required assets")
+        for entry in entries:
+            path = demo / entry["name"]
+            if not 0 < path.stat().st_size <= 512 * 1024:
+                raise ValueError(f"{path}: demo asset exceeds 512 KiB or is empty")
+            check_hash(path, entry["sha256"])
+
+    base = load_json(demo / "index.json")
+    visuals = load_json(demo / "visuals.json")
+    if base["schemaVersion"] != 1 or visuals["schemaVersion"] != 1:
+        raise ValueError("demo: unsupported index version")
+    validate_assets(base["assets"], (covers - {"ember.jpg"}) | {"silence.mp3"})
+    validate_assets(visuals["covers"], covers)
+    validate_assets(visuals["banners"], banners)
+
+
 def main():
+    validate_demo_assets()
     manifest_validator = load_schema("theme")
     appearance_validator = load_schema("appearance")
     catalog = validate_json(ROOT / "themes" / "index.json", load_schema("catalog"))
@@ -104,7 +130,7 @@ def main():
     blocked_ids = [entry["githubId"] for entry in blocked["accounts"]]
     if len(blocked_ids) != len(set(blocked_ids)):
         raise ValueError("creators: duplicate blocked GitHub ID")
-    validate_creator(ROOT / "examples" / "creator-v1", creator_validator)
+    validate_creator(ROOT / "demo" / "examples" / "creator-v1", creator_validator)
     creators = {}
     creator_root = ROOT / "creators"
     index = validate_json(creator_root / "index.json", load_schema("creators-index"))
@@ -117,7 +143,7 @@ def main():
         creators[github_id] = validate_creator(folder, creator_validator, folder.name)
     if {p.name for p in creator_root.iterdir() if p.is_dir()} != {str(i) for i in creators}:
         raise ValueError("creators: index and profile directories differ")
-    example = ROOT / "examples" / "theme-v1"
+    example = ROOT / "demo" / "examples" / "theme-v1"
     validate_theme(example, manifest_validator, appearance_validator)
     validate_reviews(example, reviews_validator)
 

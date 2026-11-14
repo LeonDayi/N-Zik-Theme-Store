@@ -2,9 +2,9 @@
 
 ## 📦 Repository layout
 
-- [themes/index.json](../themes/index.json) lists the revisions available for download.
-- [schemas/v1/](../schemas/v1/) defines the catalog index, theme manifest and appearance payload in JSON Schema Draft 2020-12.
-- [examples/theme-v1/](../examples/theme-v1/) contains a sample manifest and configuration for validation.
+- [themes/index.json](../../themes/index.json) lists the revisions available for download.
+- [schemas/v1/](../../schemas/v1/) defines the catalog index, theme manifest and appearance payload in JSON Schema Draft 2020-12.
+- [theme-v1/](theme-v1/) contains a sample manifest and configuration for validation.
 
 Published revisions use this layout:
 
@@ -28,12 +28,16 @@ The catalog derives a manifest URL from `themeId` and `revision`. Each entry pin
 
 ## 🎧 Built-in N-Zik presets
 
-The first six catalog entries follow the order of the original preset chooser in [N-Zik at `1013c849fb`](https://github.com/N-Zik-Group/N-Zik/tree/1013c849fb66e3a8c9fb200eede3d5600a16d234). The built-in presets were [introduced by aneesh1122](https://github.com/N-Zik-Group/N-Zik/commit/ea40544986) and maintained in N-Zik. Their catalog names are descriptive labels added for this conversion. All themes and their previews are released under the repository's [GPL-3.0-only license](../LICENSE).
+The first six catalog entries follow the order of the original preset chooser in [N-Zik at `1013c849fb`](https://github.com/N-Zik-Group/N-Zik/tree/1013c849fb66e3a8c9fb200eede3d5600a16d234). The built-in presets were [introduced by aneesh1122](https://github.com/N-Zik-Group/N-Zik/commit/ea40544986) and maintained in N-Zik. Their catalog names are descriptive labels added for this conversion. All themes and their previews are released under the repository's [GPL-3.0-only license](../../LICENSE).
 
 Each theme uses N-Zik's Appearance reset values for fields its original preset inherited. For example, all six use the Modern queue style, the third uses a 90 cover size, and the fourth uses System palette mode. The conversion includes the colors and player/queue categories. Minimum release compatibility is pending for the six current listings. The README gallery shows captures from a debug build.
 
 Appearance field mappings are defined by the source settings. `coverSize` maps to the portrait `thumbnailSizeDp` preference, which the UI exposes as a 0–100 control. `transparentPlayerBar`, `noBlur` and `showExpandPlayerButton` map to `transparentbar`, `noblur` and `expandedplayertoggle`, respectively. The app still resolves how these settings interact with its layout and rendering rules.
 
+
+## Demo artwork
+
+The app downloads the media in [demo/v1](../v1/) on demand. The demo includes square album covers, wide creator banner variants, and silent audio. The indexes provide SHA-256 checksums. The app’s built-in N-Zik Default theme has bundled screenshots.
 
 ## Preview coverage
 
@@ -60,8 +64,8 @@ A theme revision can have a `themes/<themeId>/<revision>/reviews.json` file
 next to its manifest. Reviews apply to that revision. A missing file means the
 revision has no maintainer reviews. Each GitHub author can review a revision once.
 
-See the [review schema](../schemas/v1/reviews.schema.json) and
-[example](../examples/theme-v1/reviews.json).
+See the [review schema](../../schemas/v1/reviews.schema.json) and
+[example](theme-v1/reviews.json).
 
 ## Creator profiles
 
@@ -85,19 +89,19 @@ Recommended dimensions for custom images:
 
 The dimensions are recommendations. The schema does not inspect image pixels.
 
-See the [creator schema](../schemas/v1/creator.schema.json) and
-[example](../examples/creator-v1/profile.json).
+See the [creator schema](../../schemas/v1/creator.schema.json) and
+[example](creator-v1/profile.json).
 
-The [creator index](../creators/index.json) lists published profiles independently
+The [creator index](../../creators/index.json) lists published profiles independently
 of the theme catalog and pins each profile's SHA-256. Update the index when a
 profile is added, removed or changed.
 
-The [verified creator list](../creators/verified.json) is maintained by the
+The [verified creator list](../../creators/verified.json) is maintained by the
 project. A verified GitHub ID marks the creator and their themes as official.
 Keep this list separate from editable profiles.
 
 Maintainers can add a numeric GitHub ID and a public moderation message to
-[`creators/blocked.json`](../creators/blocked.json). N-Zik shows that message when
+[`creators/blocked.json`](../../creators/blocked.json). N-Zik shows that message when
 the account tries to connect or submit a profile. The repository workflow closes
 pull requests from listed accounts and posts the same message. Keep private
 information out of these messages.

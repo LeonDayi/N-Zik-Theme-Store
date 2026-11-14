@@ -26,7 +26,7 @@ The [catalog index](themes/index.json) lists the current revision of each theme.
 
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-8d5cff?style=flat)](https://deepwiki.com/N-Zik-Group/N-Zik-Theme-Store)
 
-[Theme format and repository layout](examples/theme-format.md) · [Contribution guide](CONTRIBUTING.md)
+[Theme format and repository layout](demo/examples/theme-format.md) · [Contribution guide](CONTRIBUTING.md)
 
 ## 🌍 Community
 
@@ -60,7 +60,7 @@ Use [the Theme Store issue forms](https://github.com/N-Zik-Group/N-Zik-Theme-Sto
 
 [![Validate catalog](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/validate-catalog.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/validate-catalog.yml)
 
-Run `uv run --no-project --with-requirements requirements-validation.txt python scripts/validate_catalog.py` from the repository root. It checks the schemas, index, example and indexed revisions, including matching IDs, duplicate entries or preview paths, and file hashes.
+Run `uv run --no-project --with-requirements requirements-validation.txt python .github/scripts/validate_catalog.py` from the repository root. It checks the schemas, index, example and indexed revisions, including matching IDs, duplicate entries or preview paths, and file hashes.
 
 ## 🔄 Automation & Maintenance
 

@@ -26,7 +26,7 @@ The [catalog index](themes/index.json) lists the current revision of each theme.
 
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-8d5cff?style=flat)](https://deepwiki.com/N-Zik-Group/N-Zik-Theme-Store)
 
-[Theme format and repository layout](docs/theme-format.md) · [Contribution guide](CONTRIBUTING.md)
+[Theme format and repository layout](examples/theme-format.md) · [Contribution guide](CONTRIBUTING.md)
 
 ## 🌍 Community
 

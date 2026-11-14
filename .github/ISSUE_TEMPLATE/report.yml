@@ -1,0 +1,37 @@
+name: 🚩 Report a theme or review
+description: Report a published theme or review for moderation.
+title: "[REPORT] : "
+labels: [report]
+assignees: [NEVARLeVrai]
+body:
+  - type: markdown
+    attributes:
+      value: This issue is public. Avoid sharing personal information or copying the reported material.
+  - type: dropdown
+    id: target
+    attributes:
+      label: What are you reporting?
+      options:
+        - Theme
+        - Review or comment
+    validations:
+      required: true
+  - type: input
+    id: theme
+    attributes:
+      label: Theme link and revision
+      description: Paste the N-Zik share link or the GitHub link to the revision.
+    validations:
+      required: true
+  - type: input
+    id: reviewer
+    attributes:
+      label: Reviewer
+      description: For a review report, enter the GitHub handle displayed on the review.
+  - type: textarea
+    id: reason
+    attributes:
+      label: Reason
+      description: Explain why this needs moderation.
+    validations:
+      required: true

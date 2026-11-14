@@ -4,6 +4,7 @@ title: "[BUG]: "
 labels: ["bug"]
 assignees:
   - NEVARLeVrai
+projects: ["N-Zik-Group/1"]
 body:
   - type: markdown
     attributes:

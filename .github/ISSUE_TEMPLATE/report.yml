@@ -1,19 +1,24 @@
 name: 🚩 Report a theme or review
-description: Report a published theme or review for moderation.
+description: Report a published theme, all its reviews, or one review for moderation.
 title: "[REPORT] : "
 labels: [report]
 assignees: [NEVARLeVrai]
+projects: ["N-Zik-Group/1"]
 body:
   - type: markdown
     attributes:
       value: This issue is public. Avoid sharing personal information or copying the reported material.
+  - type: markdown
+    attributes:
+      value: Submit one report per target. Add any follow-up as a comment on the original issue.
   - type: dropdown
     id: target
     attributes:
       label: What are you reporting?
       options:
         - Theme
-        - Review or comment
+        - All reviews and comments
+        - One review or comment
     validations:
       required: true
   - type: input
@@ -27,7 +32,7 @@ body:
     id: reviewer
     attributes:
       label: Reviewer
-      description: For a review report, enter the GitHub handle displayed on the review.
+      description: For a report about one review, enter the GitHub handle displayed on the review.
   - type: textarea
     id: reason
     attributes:

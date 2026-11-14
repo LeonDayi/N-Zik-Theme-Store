@@ -18,7 +18,7 @@
 
 # 🎨 Browse themes
 
-The [catalog index](themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. The six built-in presets are listed while release compatibility is pending.
+The [catalog index](themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. Each published revision declares its own compatibility.
 
 <div align="center">
 
@@ -48,6 +48,8 @@ Join the N-Zik Discord:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to submit, update or withdraw a theme. See the [code of conduct](CODE_OF_CONDUCT.md) and [security policy](SECURITY.md) for community standards and private reporting.
 
+Use [the Theme Store issue forms](https://github.com/N-Zik-Group/N-Zik-Theme-Store/issues/new/choose) for catalog bugs, store features and moderation reports. See the [issue guide](https://github.com/N-Zik-Group/N-Zik-Theme-Store/issues/15) for where to report Android app issues.
+
 # 👀 Status
 
 [![Add to N-Zik RoadMap](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml)
@@ -65,6 +67,10 @@ Run `uv run --no-project --with-requirements requirements-validation.txt python 
 [![Refresh contributor grid](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/readme-contributors.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/readme-contributors.yml)
 
 [![Triage issues](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/triage-issues.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/triage-issues.yml)
+
+[![Assign Theme Store reports](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/assign-reports.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/assign-reports.yml)
+
+[![Blocked contributors and moderation](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/blocked-contributors.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/blocked-contributors.yml)
 
 # 👥 Contributors
 

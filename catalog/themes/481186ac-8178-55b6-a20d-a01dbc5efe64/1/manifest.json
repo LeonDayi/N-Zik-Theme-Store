@@ -37,13 +37,13 @@
       "path": "previews/queue-normal.webp",
       "role": "queue",
       "caption": "Queue · Normal",
-      "sha256": "78e19db296c92b521f255ffd10431d75ff0b13f05f6c14c9a7d59c5d362b9e54"
+      "sha256": "b9bd47176bdc18e04ae5d10b907362652ab13b7e293a19cc48f1919a88edc89f"
     },
     {
       "path": "previews/queue-glass.webp",
       "role": "queue",
       "caption": "Queue · Glass",
-      "sha256": "dc02b6a5fbece7711034135deca0304d941d34849480e46fb381d21345566ecb"
+      "sha256": "e74c802fa4847ffbcde7e848030c035958c6cdffc05d9c4fb3ca783031205d31"
     },
     {
       "path": "previews/home-normal.webp",
@@ -55,7 +55,7 @@
       "path": "previews/home-glass.webp",
       "role": "other",
       "caption": "Home · Glass",
-      "sha256": "0c8e3bbbb48cf91185deec7c9b80e061749353f009dfc6f7b03207779d3fb977"
+      "sha256": "7badbb6d0146e6cf6ddce1065dbeb87d902f7ec0e92601ad21380f9e95ee5b74"
     },
     {
       "path": "previews/navigation-normal.webp",
@@ -169,25 +169,25 @@
       "path": "previews/player-playing-normal.webp",
       "role": "other",
       "caption": "Player playing · Normal",
-      "sha256": "505eba1c47f62887ebf075abb0c670c0931b663ac20a3e110f4955d8638f2c7e"
+      "sha256": "714c9771185641573d0d5e12bc6cf769e5184ed40c1c4d807afb25db31429983"
     },
     {
       "path": "previews/player-playing-glass.webp",
       "role": "other",
       "caption": "Player playing · Glass",
-      "sha256": "11a4b471742c3503942836aa7fc43c3cb92e800640cc75cb9766e4248d5e1227"
+      "sha256": "a6c13e5987653d597f2c25e42fe2a4fcd09d47dbfd01c752c9e1b4bf325f4337"
     },
     {
       "path": "previews/miniplayer-playing-normal.webp",
       "role": "other",
       "caption": "Mini-player playing · Normal",
-      "sha256": "6d61559d9c57263bea93b0c23734a09e9899bbcc30819d7fe3695dcf5215647b"
+      "sha256": "284e70613e042d9142c1eeaaa05c1bef6aaaaeac503f86fbfa486e393691d305"
     },
     {
       "path": "previews/miniplayer-playing-glass.webp",
       "role": "other",
       "caption": "Mini-player playing · Glass",
-      "sha256": "ad9ab2dfb1679b423127771d2ef361963262dc64317f0aa1ecf990fb33c0e1c9"
+      "sha256": "357ec7cc9b30aa2bae01d6775db783dd0acfb104b711124ec0f786ce7b5ba0c6"
     }
   ],
   "publishedOn": "2026-11-13"

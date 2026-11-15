@@ -117,6 +117,28 @@ class CatalogValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds 524288 bytes"):
             catalog.load_json(path)
 
+    def test_nonfinite_literals_are_rejected_before_schema_validation(self):
+        path = self.folder / "appearance.json"
+        for literal in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(literal=literal):
+                path.write_text('{"radius": ' + literal + '}', encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "not a JSON number"):
+                    catalog.load_json(path)
+
+    def test_playback_gallery_scenes_need_both_variants(self):
+        previews = [
+            {"path": f"previews/{scene}-{variant}.webp", "role": catalog.PREVIEW_ROLES.get(scene, "other")}
+            for scene in catalog.BASE_SCENES for variant in ("normal", "glass")
+        ]
+        manifest = {"title": "Demo", "previews": previews}
+        previews.append({"path": "previews/extra-photo-normal.webp", "role": "other"})
+        catalog.validate_gallery(manifest)
+        previews.append({"path": "previews/player-playing-normal.webp", "role": "other"})
+        with self.assertRaisesRegex(ValueError, "player-playing-glass"):
+            catalog.validate_gallery(manifest)
+        previews.append({"path": "previews/player-playing-glass.webp", "role": "other"})
+        catalog.validate_gallery(manifest)
+
     def test_empty_files_are_rejected_even_with_matching_hash(self):
         path = self.folder / "empty.webp"
         path.write_bytes(b"")

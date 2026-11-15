@@ -25,7 +25,10 @@ def read_limited(path, limit):
 
 
 def load_json(path, limit=CATALOG_LIMIT):
-    return json.loads(read_limited(path, limit))
+    def reject_nonfinite(value):
+        raise ValueError(f"{path}: {value} is not a JSON number")
+
+    return json.loads(read_limited(path, limit), parse_constant=reject_nonfinite)
 
 
 def load_schema(name):
@@ -109,6 +112,11 @@ def validate_gallery(manifest):
                for variant in ("normal", "glass") if f"{scene}-{variant}" not in previews]
     if missing:
         raise ValueError(f'{manifest["title"]}: missing previews: {", ".join(missing)}')
+    for scene in ("player-playing", "miniplayer-playing"):
+        normal, glass = f"{scene}-normal", f"{scene}-glass"
+        if (normal in previews) != (glass in previews):
+            missing_variant = glass if normal in previews else normal
+            raise ValueError(f'{manifest["title"]}: missing preview counterpart {missing_variant}')
 
 
 def validate_reviews(folder, validator):

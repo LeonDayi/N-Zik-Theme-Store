@@ -673,13 +673,6 @@
             "showalbumcover": {
               "type": "boolean"
             },
-            "prevNextSongs": {
-              "enum": [
-                "hide",
-                "onesong",
-                "twosongs"
-              ]
-            },
             "tapqueue": {
               "type": "boolean"
             },

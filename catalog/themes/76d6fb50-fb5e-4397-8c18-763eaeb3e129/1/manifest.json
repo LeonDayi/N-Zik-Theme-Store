@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "themeId": "76d6fb50-fb5e-4397-8c18-763eaeb3e129",
+  "revision": 1,
+  "title": "[QA] Theme moderation confirmation",
+  "description": "Temporary theme used to verify publication and merge confirmation.",
+  "author": {
+    "githubId": 63956787,
+    "login": "NEVARLeVrai"
+  },
+  "tags": [
+    "dark"
+  ],
+  "compatibility": {
+    "minVersionCode": 96
+  },
+  "appearance": {
+    "path": "appearance.json",
+    "sha256": "effa6bc68e3180217c4948306047bce3bd973c8b0e8af7946b01964e30bd19fb"
+  },
+  "previews": [
+    {
+      "path": "previews/player-normal.webp",
+      "role": "player",
+      "sha256": "853f26284e36ab6c19d61c81ea1b6e303683f43c4f1c7a693289cda9d96cfdb7"
+    },
+    {
+      "path": "previews/player-glass.webp",
+      "role": "player",
+      "sha256": "14ae7c536afe5990dc1f70eb154e9c66f02cd07b556a923a8141247e03e2a1b7"
+    },
+    {
+      "path": "previews/queue-normal.webp",
+      "role": "queue",
+      "sha256": "5f4cd81dcdf9d117da44427a2ef8d8e4457b91b67db841679ccaa816ef78d37b"
+    },
+    {
+      "path": "previews/queue-glass.webp",
+      "role": "queue",
+      "sha256": "f95660f543dc02e893d51fd89ae0895ea645f529d0beedaa09e34d3f8e30de5f"
+    },
+    {
+      "path": "previews/lyrics-normal.webp",
+      "role": "other",
+      "sha256": "6969166e7da74d701149b605813b19109d7f3efdfc8eb9f2dc1b1690052ff308"
+    },
+    {
+      "path": "previews/lyrics-glass.webp",
+      "role": "other",
+      "sha256": "24c033d31ab2d8ef033b3b70037e945c26047984dea619f81c921c957e79fc49"
+    },
+    {
+      "path": "previews/home-normal.webp",
+      "role": "other",
+      "sha256": "60326845d6c576551ab1f063e6c3862090363b8335fcabc1bd1486fef213647f"
+    },
+    {
+      "path": "previews/home-glass.webp",
+      "role": "other",
+      "sha256": "64409f0f68db092caddfc41c680baff1e967c17ccfedfeef450a061da5bf5e55"
+    },
+    {
+      "path": "previews/navigation-normal.webp",
+      "role": "navigation",
+      "sha256": "7bf30774d0fc96234cf02dafa78eb6cc4f6e886922e58cd87d0d4e4d7903322b"
+    },
+    {
+      "path": "previews/navigation-glass.webp",
+      "role": "navigation",
+      "sha256": "7edb1dd469281e409b69a39904bfd3403257118eadb96a26a40db2d09fc4406c"
+    },
+    {
+      "path": "previews/album-normal.webp",
+      "role": "other",
+      "sha256": "dd0cdfe3a6899c584a93478f8ea2950607a219d806744c5e4329db9b9aa19d2a"
+    },
+    {
+      "path": "previews/album-glass.webp",
+      "role": "other",
+      "sha256": "822fb880344a798b7385054546ce74fb9ce01522f0ddd614537e8f130bece7b5"
+    },
+    {
+      "path": "previews/artist-normal.webp",
+      "role": "other",
+      "sha256": "cc2346f7e94c0f85c3a9467ddc3998cd8ff598e91ff548ac3cd9dacae24fd31a"
+    },
+    {
+      "path": "previews/artist-glass.webp",
+      "role": "other",
+      "sha256": "d30cc114ff6785ed115b9c65640ee2d0e00ddb449ea69f52b86389d3dd55f88c"
+    },
+    {
+      "path": "previews/playlist-normal.webp",
+      "role": "other",
+      "sha256": "76abf83ed61eb6d2a721703fdc02e4828527c577634a946eff5ca71e23b21c6b"
+    },
+    {
+      "path": "previews/playlist-glass.webp",
+      "role": "other",
+      "sha256": "454e74cd0837535451d4aad13055df7d6088ea81da0c86b52d9c6d969d586c96"
+    },
+    {
+      "path": "previews/local-playlist-normal.webp",
+      "role": "other",
+      "sha256": "2a54ca3c4d0734d0ddf1c2198d29ec681513985496e42eb8828d60a879f61a62"
+    },
+    {
+      "path": "previews/local-playlist-glass.webp",
+      "role": "other",
+      "sha256": "0eeaf71842175e6668e514c646020898a04f0d04f67a9bf126d426cebfa5065c"
+    },
+    {
+      "path": "previews/search-normal.webp",
+      "role": "other",
+      "sha256": "712ce44b84489b957b0adf8fde5395d7a5859fd50b1f96aaa3e1ed41d0d4ce37"
+    },
+    {
+      "path": "previews/search-glass.webp",
+      "role": "other",
+      "sha256": "d45d5e36a1c3face1da0573330e4c43808b776d599a23b188b2e07b3b3303b19"
+    },
+    {
+      "path": "previews/search-albums-normal.webp",
+      "role": "other",
+      "sha256": "5c02472ac2237455a53e7f2142c139260fc547c4d6cfc71c9086cff8b4a9e651"
+    },
+    {
+      "path": "previews/search-albums-glass.webp",
+      "role": "other",
+      "sha256": "6b2a14d3f763870138de84b1e45787e1abf501e43222543fd200d4a3e6634eeb"
+    },
+    {
+      "path": "previews/search-artists-normal.webp",
+      "role": "other",
+      "sha256": "222c4fea5ce5042cf1eec68e5dfa5a78c0bb0ea3eed723f05c54e73d14af05b7"
+    },
+    {
+      "path": "previews/search-artists-glass.webp",
+      "role": "other",
+      "sha256": "2392568c051e88bacff33cdf5c31c7c58a005851017ee6d1c4cd2d73dc97f63b"
+    },
+    {
+      "path": "previews/player-playing-normal.webp",
+      "role": "other",
+      "sha256": "d263d7874706a595095a2dc50f996b960f971652d917d180bfdd8f10dceece3f"
+    },
+    {
+      "path": "previews/player-playing-glass.webp",
+      "role": "other",
+      "sha256": "ded196e4cd6f0472261577ab2787ce72652a5f709f5dec22e141c4e94d72114c"
+    },
+    {
+      "path": "previews/miniplayer-playing-normal.webp",
+      "role": "other",
+      "sha256": "4578139b5ce508e7221bb439363a69bbc4ddca8679c6126275aa69922c12dfa7"
+    },
+    {
+      "path": "previews/miniplayer-playing-glass.webp",
+      "role": "other",
+      "sha256": "a71d8b7e4f95423c2e5fd388b9da9c7f88873ed5e73d708201dd299f9c7c893f"
+    }
+  ]
+}

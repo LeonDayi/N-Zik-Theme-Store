@@ -282,6 +282,7 @@ jobs:
               }
             }
             async function forkCleanupToken(fork) {
+              if (fork.id === event.repository.id) return process.env.THEME_STORE_MERGE_TOKEN;
               const privateKey = process.env.THEME_STORE_GITHUB_APP_PRIVATE_KEY;
               if (!privateKey) return process.env.THEME_STORE_CLEANUP_TOKEN;
               const { sign } = require('node:crypto');
@@ -315,6 +316,47 @@ jobs:
               });
               return token?.token;
             }
+            function writeSubmissionRef(fork, branch, expectedSha, nextSha, token) {
+              if (!token || !/^[0-9a-f]{40}$/.test(expectedSha) ||
+                  (nextSha !== null && !/^[0-9a-f]{40}$/.test(nextSha)) ||
+                  !/^[a-z0-9-]+$/i.test(fork.owner.login) || !/^[a-z0-9_.-]+$/i.test(fork.name) ||
+                  !/^nzik\/[a-z0-9-]+$/.test(branch) || !fork.default_branch || branch === fork.default_branch) {
+                throw new Error('Invalid submission branch update.');
+              }
+              core.setSecret(token);
+              const authorization = Buffer.from('x-access-token:' + token).toString('base64');
+              core.setSecret(authorization);
+              const fs = require('node:fs');
+              const path = require('node:path');
+              const { tmpdir } = require('node:os');
+              const { execFileSync } = require('node:child_process');
+              const temporaryRoot = path.resolve(tmpdir());
+              const directory = fs.mkdtempSync(path.join(temporaryRoot, 'nzik-fork-ref-'));
+              const authEnv = {
+                PATH: process.env.PATH,
+                GIT_CONFIG_NOSYSTEM: '1',
+                GIT_CONFIG_GLOBAL: path.join(directory, 'global.config'),
+                GIT_CONFIG_COUNT: '1',
+                GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+                GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ' + authorization,
+                GIT_TERMINAL_PROMPT: '0',
+              };
+              const ref = 'refs/heads/' + branch;
+              const url = `https://github.com/${fork.owner.login}/${fork.name}.git`;
+              const run = args => execFileSync('git', args, { cwd: directory, env: authEnv, stdio: 'pipe' });
+              try {
+                run(['init', '--quiet', '--bare', '.']);
+                // Git needs the replacement commit locally; no fork files are checked out or executed.
+                if (nextSha !== null) run(['fetch', '--no-tags', url, nextSha]);
+                // Reset, repair and deletion must all reject a branch that moved since it was reviewed.
+                run(['push', `--force-with-lease=${ref}:${expectedSha}`, url, `${nextSha ?? ''}:${ref}`]);
+              } catch {
+                throw new Error('Could not update the submission branch. Check fork write access and whether its head moved.');
+              } finally {
+                if (path.dirname(directory) !== temporaryRoot) throw new Error('Unexpected temporary Git directory.');
+                fs.rmSync(directory, { recursive: true, force: true });
+              }
+            }
             async function cleanSubmissionBranch(expectedSha, merged) {
               if (!(isSubmission || isThemeSubmission || isReview || isWithdrawal)) return;
               try {
@@ -346,30 +388,8 @@ jobs:
                   core.warning('Fork branch cleanup needs N-Zik Sign In installed on the fork with Contents: write.');
                   return;
                 }
-                core.setSecret(token);
-                const fs = require('node:fs');
-                const path = require('node:path');
-                const { tmpdir } = require('node:os');
-                const { execFileSync } = require('node:child_process');
-                const directory = fs.mkdtempSync(path.join(tmpdir(), 'nzik-fork-cleanup-'));
-                const authEnv = {
-                  PATH: process.env.PATH,
-                  GIT_CONFIG_COUNT: '1',
-                  GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
-                  GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ' + Buffer.from('x-access-token:' + token).toString('base64'),
-                  GIT_TERMINAL_PROMPT: '0',
-                };
-                const ref = 'refs/heads/' + branch;
-                const url = `https://github.com/${repository.owner}/${repository.repo}.git`;
-                try {
-                  execFileSync('git', ['init', '--quiet', '--bare', directory], { env: authEnv });
-                  // Delete only the checked SHA, even if a contributor pushes again during cleanup.
-                  execFileSync('git', ['push', `--force-with-lease=${ref}:${expectedSha}`, url, ':' + ref],
-                    { cwd: directory, env: authEnv, stdio: 'pipe' });
-                  core.info('Deleted the processed submission branch from the fork.');
-                } finally {
-                  fs.rmSync(directory, { recursive: true, force: true });
-                }
+                writeSubmissionRef(fork, branch, expectedSha, null, token);
+                core.info('Deleted the processed submission branch from the fork.');
               } catch (error) {
                 if (error.status === 403 || error.status === 404) {
                   core.warning('The cleanup credential could not access the fork branch, or the branch was already removed.');
@@ -446,14 +466,15 @@ jobs:
               await github.rest.issues.lock(target);
             }
             async function repairCatalogIndex(current, index, entries) {
-              const token = process.env.THEME_STORE_CLEANUP_TOKEN;
               const repository = current.head.repo;
-              if (!repository || (!token && repository.id !== event.repository.id)) {
-                core.setFailed('The bot needs write access to the submission branch to repair the index.');
+              const token = repository && await forkCleanupToken(repository);
+              if (!token) {
+                core.setFailed('Index repair needs N-Zik Sign In installed on the fork with Contents: write.');
                 return;
               }
+              core.setSecret(token);
               const fork = { owner: repository.owner.login, repo: repository.name };
-              const headers = token ? { authorization: 'Bearer ' + token } : {};
+              const headers = { authorization: 'Bearer ' + token };
               const branch = 'heads/' + current.head.ref;
               const { data: liveHead } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
               if (liveHead.object.sha !== current.head.sha) {
@@ -467,10 +488,35 @@ jobs:
                 ...fork, message: 'Resolve catalog index against main', tree: tree.sha,
                 parents: [current.head.sha, current.base.sha], headers
               });
-              await github.rest.git.updateRef({ ...fork, ref: branch, sha: commit.sha, force: false, headers });
+              writeSubmissionRef(repository, current.head.ref, current.head.sha, commit.sha, token);
               await status('in review');
               if (currentLabels.has('accepted')) await github.rest.issues.removeLabel({ ...target, name: 'accepted' });
               core.notice('Catalog index repaired. Apply accepted again after the new commit passes validation.');
+            }
+            async function resetSubmissionBranch(current) {
+              const repository = current.head.repo;
+              if (repository.owner.id !== pull.user.id) throw new Error('The submission branch owner changed.');
+              const token = await forkCleanupToken(repository);
+              if (!token) throw new Error('Submission reset needs N-Zik Sign In installed on the fork with Contents: write.');
+              core.setSecret(token);
+              const fork = { owner: repository.owner.login, repo: repository.name };
+              const branch = 'heads/' + current.head.ref;
+              const headers = { authorization: 'Bearer ' + token };
+              const { data: head } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
+              if (head.object.sha !== current.head.sha) throw new Error('Submission branch changed during moderation');
+              writeSubmissionRef(repository, current.head.ref, current.head.sha, current.base.sha, token);
+              const { data: reset } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
+              if (reset.object.sha === current.base.sha) {
+                for (let attempt = 0; attempt < 8; attempt++) {
+                  const { data: refreshed } = await github.rest.pulls.get({
+                    ...context.repo, pull_number: pull.number
+                  });
+                  if (refreshed.head.sha === reset.object.sha && refreshed.changed_files === 0) return true;
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+                core.warning('The branch was reset, but GitHub still reports the previous pull request diff.');
+              }
+              return false;
             }
             async function finishPublication(confirmed) {
               // The push can finish before GitHub updates the pull request metadata.
@@ -608,31 +654,8 @@ jobs:
                 && current.head.ref === pull.head.ref && current.base.ref === ref
                 && current.head.repo.default_branch && current.head.ref !== current.head.repo.default_branch
                 && current.head.ref !== current.base.ref) {
-              const [owner, repo] = current.head.repo.full_name.split('/');
-              const branch = 'heads/' + current.head.ref;
-              const headers = process.env.THEME_STORE_CLEANUP_TOKEN
-                ? { authorization: 'Bearer ' + process.env.THEME_STORE_CLEANUP_TOKEN }
-                : {};
               try {
-                const { data: head } = await github.rest.git.getRef({ owner, repo, ref: branch, headers });
-                if (head.object.sha !== current.head.sha) throw new Error('Submission branch changed during moderation');
-                await github.rest.git.updateRef({
-                  owner, repo, ref: branch, sha: current.base.sha, force: true, headers
-                });
-                const { data: reset } = await github.rest.git.getRef({ owner, repo, ref: branch, headers });
-                if (reset.object.sha === current.base.sha) {
-                  for (let attempt = 0; attempt < 8; attempt++) {
-                    const { data: refreshed } = await github.rest.pulls.get({
-                      ...context.repo, pull_number: pull.number
-                    });
-                    if (refreshed.head.sha === reset.object.sha && refreshed.changed_files === 0) {
-                      cleaned = true;
-                      break;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                  }
-                  if (!cleaned) core.warning('The branch was reset, but GitHub still reports the previous pull request diff.');
-                }
+                cleaned = await resetSubmissionBranch(current);
               } catch (error) {
                 core.warning('Could not reset the submission branch. Check fork write access and the branch state.');
               }

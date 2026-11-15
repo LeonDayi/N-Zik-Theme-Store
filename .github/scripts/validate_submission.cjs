@@ -187,17 +187,20 @@ function trustedCandidate(root, current) {
     }
     return computedTree;
   }
+  function validateTree(tree) {
+    const mergedChanges = diff(base.sha, tree);
+    const allowedPaths = new Set(changes.map(file => file.filename));
+    assert(mergedChanges.every(file => allowedPaths.has(file.filename)), 'The merge changes files outside the checked submission.');
+    validate(mergedChanges, tree);
+    validatedTree = tree;
+  }
   return {
     ancestor, base: base.sha, head: head.sha, changes, read, blob, mergeTree,
     validateMerged() {
       // This creates a candidate tree without checking out or running anything from the fork.
       const merged = mergeTree();
       assert(merged, 'Git did not produce a conflict-free candidate tree.');
-      const mergedChanges = diff(base.sha, merged);
-      const allowedPaths = new Set(changes.map(file => file.filename));
-      assert(mergedChanges.every(file => allowedPaths.has(file.filename)), 'The merge changes files outside the checked submission.');
-      validate(mergedChanges, merged);
-      validatedTree = merged;
+      validateTree(merged);
     },
     publishValidatedMerge(message, token) {
       assert(validatedTree, 'The merge tree must pass catalog validation before publication.');
@@ -220,7 +223,30 @@ function trustedCandidate(root, current) {
       return commit;
     },
     validateRepairedIndex(index) {
-      validate(changes, head.sha, { filename: themeIndexPath, bytes: Buffer.from(JSON.stringify(index, null, 2) + '\n') });
+      // Resolve only the owner-checked index against trusted main. Publishing this
+      // tree upstream avoids importing unrelated workflow changes into the fork.
+      assert(changes.some(file => file.filename === themeIndexPath && file.status === 'modified') &&
+        changes.every(file => file.filename === themeIndexPath || file.status === 'added'),
+      'Index repair may only add the checked theme files and replace its index.');
+      const temporaryRoot = path.resolve(require('node:os').tmpdir());
+      const directory = fs.mkdtempSync(path.join(temporaryRoot, 'nzik-candidate-index-'));
+      const indexEnv = { ...env, GIT_INDEX_FILE: path.join(directory, 'index') };
+      const indexed = (...args) => run('git', args, { env: indexEnv }).toString('utf8').trim();
+      try {
+        indexed('read-tree', base.sha);
+        for (const file of changes) {
+          const sha = file.filename === themeIndexPath
+            ? run('git', ['hash-object', '-w', '--stdin'], {
+              input: Buffer.from(JSON.stringify(index, null, 2) + '\n'),
+            }).toString('utf8').trim()
+            : blob(file.filename);
+          indexed('update-index', '--add', '--cacheinfo', '100644', sha, file.filename);
+        }
+        validateTree(indexed('write-tree'));
+      } finally {
+        assert(path.dirname(directory) === temporaryRoot, 'Unexpected candidate index directory.');
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
     },
   };
 }

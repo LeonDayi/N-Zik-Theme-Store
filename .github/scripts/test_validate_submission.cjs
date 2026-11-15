@@ -183,3 +183,58 @@ test('trusted checkout validates merged data for the exact approved PR head', t 
   assert.equal(run('rev-parse', merged + '^1'), racingCommit);
   assert.equal(run('rev-parse', merged + '^2'), head);
 });
+
+test('a repaired index validates and publishes current main without writing its workflows into the fork', t => {
+  const temporaryRoot = path.resolve(os.tmpdir());
+  const root = fs.mkdtempSync(path.join(temporaryRoot, 'nzik-repaired-submission-'));
+  t.after(() => {
+    assert.equal(path.dirname(root), temporaryRoot);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const git = (...args) => execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  const put = (filename, value) => {
+    fs.mkdirSync(path.dirname(path.join(root, filename)), { recursive: true });
+    fs.writeFileSync(path.join(root, filename), value);
+  };
+  git('init', '-q');
+  git('config', 'user.name', 'Test');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'core.autocrlf', 'false');
+  git('remote', 'add', 'origin', '.');
+  put('.github/scripts/validate_catalog.py', [
+    'import json', 'from pathlib import Path',
+    'index = json.loads(Path("catalog/themes/index.json").read_text())',
+    'assert index == {"schemaVersion": 1, "themes": ["main", "submission"]}',
+    'assert Path("catalog/themes/submission.json").read_text() == "checked data"',
+    'assert Path(".github/workflows/test.yml").read_text() == "current trusted workflow"',
+  ].join('\n'));
+  put('.github/workflows/test.yml', 'old workflow already in the fork');
+  put(themeIndex, JSON.stringify({ schemaVersion: 1, themes: [] }));
+  git('add', '.');
+  git('commit', '-qm', 'Shared ancestor');
+  const ancestor = git('rev-parse', 'HEAD');
+  put(themeIndex, JSON.stringify({ schemaVersion: 1, themes: ['submission'] }));
+  put('catalog/themes/submission.json', 'checked data');
+  git('add', '.');
+  git('commit', '-qm', 'Accepted fork submission');
+  const head = git('rev-parse', 'HEAD');
+  git('update-ref', 'refs/pull/4/head', head);
+  git('checkout', '--detach', '-q', ancestor);
+  put(themeIndex, JSON.stringify({ schemaVersion: 1, themes: ['main'] }));
+  put('.github/workflows/test.yml', 'current trusted workflow');
+  git('add', '.');
+  git('commit', '-qm', 'Concurrent main publication and workflow update');
+  const base = git('rev-parse', 'HEAD');
+  git('update-ref', 'refs/heads/main', base);
+  const candidate = trustedCandidate(root, { number: 4, base: { sha: base }, head: { sha: head } });
+  assert.equal(candidate.mergeTree(), null);
+  assert.throws(() => candidate.validateRepairedIndex({ schemaVersion: 1, themes: ['submission'] }));
+  assert.throws(() => candidate.publishValidatedMerge('Invalid repair'), /must pass/);
+  candidate.validateRepairedIndex({ schemaVersion: 1, themes: ['main', 'submission'] });
+  const merged = candidate.publishValidatedMerge('Validated index repair');
+  assert.equal(git('rev-parse', merged + '^1'), base);
+  assert.equal(git('rev-parse', merged + '^2'), head);
+  assert.equal(git('show', merged + ':.github/workflows/test.yml'), 'current trusted workflow');
+  assert.equal(git('rev-parse', 'refs/pull/4/head'), head);
+  assert.equal(git('show', head + ':.github/workflows/test.yml'), 'old workflow already in the fork');
+});

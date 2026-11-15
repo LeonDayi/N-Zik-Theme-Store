@@ -4,6 +4,11 @@ on:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review, labeled, closed]
   workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: 'Retry incomplete cleanup for a closed submission (leave empty to initialize labels)'
+        required: false
+        type: string
 permissions:
   contents: write
   issues: write
@@ -73,7 +78,14 @@ jobs:
                 await ensureLabel(name, color);
               }
               for (const name of Object.keys(reasons)) await ensureLabel(name, 'f9d0c4');
-              return;
+              await ensureLabel('cleanup pending', 'd93f0b');
+              const number = String(event.inputs?.pull_request_number ?? '').trim();
+              if (!number) return;
+              if (!/^[1-9]\d*$/.test(number) || !Number.isSafeInteger(Number(number))) {
+                throw new Error('Enter a valid pull request number to retry cleanup.');
+              }
+              ({ data: event.pull_request } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(number) }));
+              event.action = 'cleanup_retry';
             }
             const pull = event.pull_request;
             const ref = event.repository.default_branch;
@@ -85,7 +97,7 @@ jobs:
             const withdrawalBranch = /^nzik\/withdraw-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.exec(pull.head.ref);
             const isWithdrawal = authorOwnsHead && Boolean(withdrawalBranch);
             const reviewBranch = authorOwnsHead && /^nzik\/review-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})-([1-9]\d*)-([1-9]\d*)$/.exec(pull.head.ref);
-            const isReview = reviewBranch && reviewBranch[3] === String(pull.user.id);
+            const isReview = authorOwnsHead && Boolean(reviewBranch) && reviewBranch[3] === String(pull.user.id);
             const reviewPath = isReview ? `catalog/themes/${reviewBranch[1]}/${reviewBranch[2]}/reviews.json` : '';
             const labelAdded = event.action === 'labeled' ? event.label.name : '';
             if (labelAdded) {
@@ -162,10 +174,21 @@ jobs:
             const themeLabels = ['new theme', 'theme update'];
             const isTheme = item => item.labels.some(label => themeLabels.includes(label.name));
             const managedSubmission = isSubmission || isThemeSubmission || isReview || isWithdrawal;
-            if (event.action === 'closed' && ((!isSubmission && !isReview && !isWithdrawal && !isTheme(pull)) || !pull.merged)) return;
+            if (event.action === 'cleanup_retry' && !managedSubmission) {
+              core.setFailed('Cleanup retry requires an author-owned Theme Store submission branch.');
+              return;
+            }
             const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
-            if (current.merged && event.action !== 'closed' && !(managedSubmission && labelAdded === 'accepted')) return;
+            if (current.merged && event.action !== 'closed' && event.action !== 'cleanup_retry' &&
+                !(managedSubmission && labelAdded === 'accepted')) return;
             const currentLabels = new Set(current.labels.map(label => label.name));
+            const cleanupRetry = current.state === 'closed' && !current.merged && currentLabels.has('cleanup pending');
+            if (event.action === 'cleanup_retry' && (current.state !== 'closed' || (!current.merged && !cleanupRetry))) {
+              core.setFailed('Cleanup retry requires a closed submission with the cleanup pending label.');
+              return;
+            }
+            if (event.action === 'closed' && !cleanupRetry &&
+                ((!managedSubmission && !isTheme(pull)) || !pull.merged)) return;
             if (event.action === 'reopened' && current.locked
                 && ['refused', 'ban'].some(label => currentLabels.has(label))) {
               await github.rest.pulls.update({ ...context.repo, pull_number: pull.number, state: 'closed' });
@@ -173,7 +196,7 @@ jobs:
             }
             let decision = '';
             let reason = '';
-            if (labelAdded && labelAdded !== 'accepted') {
+            if (labelAdded && labelAdded !== 'accepted' && !cleanupRetry) {
               if (current.state !== 'open') return;
               const selected = Object.keys(reasons).filter(name => currentLabels.has(name));
               const decisions = ['refused', 'ban'].filter(name => currentLabels.has(name));
@@ -358,17 +381,17 @@ jobs:
               }
             }
             async function cleanSubmissionBranch(expectedSha, merged) {
-              if (!(isSubmission || isThemeSubmission || isReview || isWithdrawal)) return;
+              if (!(isSubmission || isThemeSubmission || isReview || isWithdrawal)) return false;
               try {
                 const { data: resolved } = await github.rest.pulls.get({
                   ...context.repo, pull_number: pull.number
                 });
                 const fork = resolved.head.repo;
                 const branch = resolved.head.ref;
-                if (resolved.state !== 'closed' || (merged ? !resolved.merged : resolved.merged || resolved.changed_files !== 0) ||
+                if (resolved.state !== 'closed' || (merged ? !resolved.merged : resolved.merged) ||
                     !fork || !fork.default_branch || fork.id === event.repository.id || fork.id !== pull.head.repo?.id ||
                     fork.owner.id !== pull.user.id || branch !== pull.head.ref || branch === fork.default_branch ||
-                    branch === resolved.base.ref || resolved.head.sha !== expectedSha) return;
+                    branch === resolved.base.ref) return false;
 
                 const repository = { owner: fork.owner.login, repo: fork.name };
                 const query = { state: 'open', head: `${fork.owner.login}:${branch}`, per_page: 100 };
@@ -376,27 +399,86 @@ jobs:
                   github.paginate(github.rest.pulls.list, { ...context.repo, ...query }),
                   github.paginate(github.rest.pulls.list, { ...repository, ...query })
                 ]);
-                if (upstreamOpen.length || forkOpen.length) return;
+                if (upstreamOpen.length || forkOpen.length) return false;
 
-                const { data: branchInfo } = await github.rest.repos.getBranch({ ...repository, branch });
-                if (branchInfo.protected || branchInfo.commit.sha !== expectedSha) return;
+                let branchInfo;
+                try {
+                  ({ data: branchInfo } = await github.rest.repos.getBranch({ ...repository, branch }));
+                } catch (error) {
+                  if (error.status === 404) return true;
+                  throw error;
+                }
+                if (branchInfo.protected || branchInfo.commit.sha !== expectedSha || resolved.head.sha !== expectedSha ||
+                    (!merged && resolved.changed_files !== 0)) return false;
                 if (!/^[0-9a-f]{40}$/.test(expectedSha) ||
                     !/^[a-z0-9-]+$/i.test(repository.owner) ||
-                    !/^[a-z0-9_.-]+$/i.test(repository.repo)) return;
+                    !/^[a-z0-9_.-]+$/i.test(repository.repo)) return false;
                 const token = await forkCleanupToken(fork);
                 if (!token) {
                   core.warning('Fork branch cleanup needs N-Zik Sign In installed on the fork with Contents: write.');
-                  return;
+                  return false;
                 }
                 writeSubmissionRef(fork, branch, expectedSha, null, token);
                 core.info('Deleted the processed submission branch from the fork.');
+                return true;
               } catch (error) {
                 if (error.status === 403 || error.status === 404) {
                   core.warning('The cleanup credential could not access the fork branch, or the branch was already removed.');
                 } else {
                   core.warning('Could not delete the processed submission branch. Check fork write access and whether its head moved.');
                 }
+                return false;
               }
+            }
+            const cleanupMarker = '<!-- nzik-cleanup-state ';
+            async function cleanupComment() {
+              const comments = await github.paginate(github.rest.issues.listComments, target);
+              return comments.find(comment => comment.user?.login === 'github-actions[bot]' &&
+                comment.body?.startsWith(cleanupMarker));
+            }
+            async function savedCleanupState() {
+              const comment = await cleanupComment();
+              const encoded = comment?.body?.slice(cleanupMarker.length).split(' -->')[0];
+              const state = encoded && JSON.parse(encoded);
+              if (!state || state.repositoryId !== pull.head.repo?.id || state.branch !== pull.head.ref ||
+                  !/^[0-9a-f]{40}$/.test(state.head) || !/^[0-9a-f]{40}$/.test(state.reset) ||
+                  !['refused', 'ban'].includes(state.decision) ||
+                  (state.reason !== '' && !Object.hasOwn(reasons, state.reason))) {
+                throw new Error('No valid recorded cleanup state exists. The submission branch was preserved.');
+              }
+              return state;
+            }
+            async function reportCleanup(state, complete) {
+              const comment = await cleanupComment();
+              const body = cleanupMarker + JSON.stringify(state) + ' -->\n' + (complete
+                ? 'Submission branch cleanup completed.'
+                : `Submission branch cleanup is pending. The bot will only reset commit ${state.head}; newer work is preserved. ` +
+                  `After restoring fork access, rerun this job or run Blocked contributors with pull_request_number=${pull.number}.`);
+              if (comment) await github.rest.issues.updateComment({ ...context.repo, comment_id: comment.id, body });
+              else await github.rest.issues.createComment({ ...target, body });
+              if (complete) {
+                try { await github.rest.issues.removeLabel({ ...target, name: 'cleanup pending' }); }
+                catch (error) { if (error.status !== 404) throw error; }
+              } else {
+                await ensureLabel('cleanup pending', 'd93f0b');
+                await github.rest.issues.addLabels({ ...target, labels: ['cleanup pending'] });
+              }
+            }
+            async function preserveStaleRefusal() {
+              await status('in review');
+              for (const name of ['accepted', 'refused', ...Object.keys(reasons)]) {
+                if (!currentLabels.has(name)) continue;
+                try { await github.rest.issues.removeLabel({ ...target, name }); }
+                catch (error) { if (error.status !== 404) throw error; }
+              }
+              const marker = `<!-- nzik-moderation-stale:${pull.head.sha} -->`;
+              const comments = await github.paginate(github.rest.issues.listComments, target);
+              if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
+                await github.rest.issues.createComment({ ...target, body: marker + '\n' +
+                  `The refusal concerned commit ${pull.head.sha}, but this submission now points to ${current.head.sha}. ` +
+                  'The newer work was preserved and the pull request remains open for a fresh review.' });
+              }
+              core.setFailed('The submission changed after refusal. Review the new commit before refusing it.');
             }
             async function deleteWithdrawnTheme() {
               const themeId = withdrawalBranch[1];
@@ -465,35 +547,7 @@ jobs:
               }
               await github.rest.issues.lock(target);
             }
-            async function repairCatalogIndex(current, index, entries) {
-              const repository = current.head.repo;
-              const token = repository && await forkCleanupToken(repository);
-              if (!token) {
-                core.setFailed('Index repair needs N-Zik Sign In installed on the fork with Contents: write.');
-                return;
-              }
-              core.setSecret(token);
-              const fork = { owner: repository.owner.login, repo: repository.name };
-              const headers = { authorization: 'Bearer ' + token };
-              const branch = 'heads/' + current.head.ref;
-              const { data: liveHead } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
-              if (liveHead.object.sha !== current.head.sha) {
-                core.setFailed('The submission changed while repairing the index.');
-                return;
-              }
-              const { data: base } = await github.rest.git.getCommit({ ...context.repo, commit_sha: current.base.sha });
-              entries.push({ path: indexPath, mode: '100644', type: 'blob', content: JSON.stringify(index, null, 2) + '\n' });
-              const { data: tree } = await github.rest.git.createTree({ ...fork, base_tree: base.tree.sha, tree: entries, headers });
-              const { data: commit } = await github.rest.git.createCommit({
-                ...fork, message: 'Resolve catalog index against main', tree: tree.sha,
-                parents: [current.head.sha, current.base.sha], headers
-              });
-              writeSubmissionRef(repository, current.head.ref, current.head.sha, commit.sha, token);
-              await status('in review');
-              if (currentLabels.has('accepted')) await github.rest.issues.removeLabel({ ...target, name: 'accepted' });
-              core.notice('Catalog index repaired. Apply accepted again after the new commit passes validation.');
-            }
-            async function resetSubmissionBranch(current) {
+            async function resetSubmissionBranch(current, state) {
               const repository = current.head.repo;
               if (repository.owner.id !== pull.user.id) throw new Error('The submission branch owner changed.');
               const token = await forkCleanupToken(repository);
@@ -502,11 +556,19 @@ jobs:
               const fork = { owner: repository.owner.login, repo: repository.name };
               const branch = 'heads/' + current.head.ref;
               const headers = { authorization: 'Bearer ' + token };
-              const { data: head } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
-              if (head.object.sha !== current.head.sha) throw new Error('Submission branch changed during moderation');
-              writeSubmissionRef(repository, current.head.ref, current.head.sha, current.base.sha, token);
+              let head;
+              try { ({ data: head } = await github.rest.git.getRef({ ...fork, ref: branch, headers })); }
+              catch (error) { if (error.status === 404) return true; throw error; }
+              if (![state.head, state.reset].includes(head.object.sha)) {
+                throw new Error('Submission branch changed since moderation. New work was preserved.');
+              }
+              if (head.object.sha !== state.reset) {
+                // The merge base already belongs to this submission's history;
+                // resetting to it does not import newer upstream workflow files.
+                writeSubmissionRef(repository, current.head.ref, state.head, state.reset, token);
+              }
               const { data: reset } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
-              if (reset.object.sha === current.base.sha) {
+              if (reset.object.sha === state.reset) {
                 for (let attempt = 0; attempt < 8; attempt++) {
                   const { data: refreshed } = await github.rest.pulls.get({
                     ...context.repo, pull_number: pull.number
@@ -543,7 +605,7 @@ jobs:
             const list = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
             if (list.schemaVersion !== 1 || !Array.isArray(list.accounts)) throw new Error('Invalid moderation list');
             let blocked = list.accounts.find(account => account.githubId === pull.user.id);
-            if (labelAdded === 'accepted' && !blocked) {
+            if (labelAdded === 'accepted' && !blocked && !cleanupRetry) {
               if ((!isSubmission && !isReview && !isWithdrawal && !isThemeSubmission) || current.state !== 'open'
                   || current.draft || !currentLabels.has('accepted') || currentLabels.has('refused') || currentLabels.has('ban')) return;
               if (current.head.sha !== pull.head.sha || current.head.ref !== pull.head.ref ||
@@ -604,14 +666,8 @@ jobs:
                   return;
                 }
               }
-              if (repairedIndex) {
-                candidate.validateRepairedIndex(repairedIndex);
-                const entries = files.filter(file => file.filename !== indexPath).map(file =>
-                  ({ path: file.filename, mode: '100644', type: 'blob', sha: candidate.blob(file.filename) }));
-                await repairCatalogIndex(current, repairedIndex, entries);
-                return;
-              }
-              candidate.validateMerged();
+              if (repairedIndex) candidate.validateRepairedIndex(repairedIndex);
+              else candidate.validateMerged();
               const { data: live } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
               const liveLabels = new Set(live.labels.map(label => label.name));
               if (live.state !== 'open' || live.draft || live.head.sha !== candidate.head ||
@@ -628,7 +684,13 @@ jobs:
               await finishPublication(confirmation);
               return;
             }
-            if (decision === 'ban' && !blocked) {
+            let cleanup;
+            if (cleanupRetry) {
+              cleanup = await savedCleanupState();
+              decision = cleanup.decision;
+              reason = cleanup.reason;
+            }
+            if (decision === 'ban' && !blocked && !cleanupRetry) {
               blocked = {
                 githubId: pull.user.id,
                 message: `Your account is blocked from contributing to the Theme Store. Reason: ${reason.slice(8)}.`
@@ -640,32 +702,54 @@ jobs:
                 content: Buffer.from(JSON.stringify(list, null, 2) + '\n').toString('base64')
               });
             }
-            if (!blocked && decision !== 'refused') {
+            if (!blocked && decision !== 'refused' && !cleanupRetry) {
               if ((isSubmission || isThemeSubmission || isReview || isWithdrawal) && current.state === 'open' && !current.labels.some(label => ['accepted', 'refused', 'ban'].includes(label.name))) {
                 await status('in review');
               }
               return;
             }
-            await status(blocked ? 'ban' : 'refused', reason || (blocked
+            if (!blocked && decision === 'refused' && !cleanupRetry && current.head.sha !== pull.head.sha) {
+              await preserveStaleRefusal();
+              return;
+            }
+            await status(blocked || decision === 'ban' ? 'ban' : 'refused', reason || (blocked
               ? [...currentLabels].find(label => Object.hasOwn(reasons, label))
               : ''));
             let cleaned = false;
-            if (current.state === 'open' && (isSubmission || isThemeSubmission || isReview || isWithdrawal) && current.head.repo?.id === pull.head.repo.id
+            let cleanupComplete = false;
+            if ((current.state === 'open' || cleanupRetry) && managedSubmission && current.head.repo && pull.head.repo &&
+                current.head.repo.id === pull.head.repo.id
                 && current.head.ref === pull.head.ref && current.base.ref === ref
                 && current.head.repo.default_branch && current.head.ref !== current.head.repo.default_branch
                 && current.head.ref !== current.base.ref) {
+              if (!cleanup) {
+                const { data: comparison } = await github.rest.repos.compareCommits({
+                  ...context.repo, base: current.base.sha, head: pull.head.sha
+                });
+                const reset = comparison.merge_base_commit.sha;
+                if (!/^[0-9a-f]{40}$/.test(reset)) throw new Error('Invalid submission merge base.');
+                cleanup = { repositoryId: current.head.repo.id, branch: current.head.ref,
+                  head: pull.head.sha, reset, decision: blocked ? 'ban' : decision, reason };
+              }
+              // Persist the moderated SHA before any write, so failures and retries
+              // never promote a later branch head into an authorized reset target.
+              await reportCleanup(cleanup, false);
               try {
-                cleaned = await resetSubmissionBranch(current);
+                cleaned = await resetSubmissionBranch(current, cleanup);
               } catch (error) {
-                core.warning('Could not reset the submission branch. Check fork write access and the branch state.');
+                core.warning('Cleanup is pending. Check fork access or whether the submission has newer work.');
               }
             }
             if (current.state === 'open') {
               await github.rest.pulls.update({ ...context.repo, pull_number: pull.number, state: 'closed' });
-              if (cleaned) await cleanSubmissionBranch(current.base.sha, false);
+            }
+            if (cleaned) {
+              cleanupComplete = await cleanSubmissionBranch(cleanup.reset, false);
+              if (cleanupComplete) await reportCleanup(cleanup, true);
             }
             const refusal = `Submission refused (${reason.slice(8)}). ${reasons[reason]} You may send a corrected version.`;
-            const message = (blocked?.message ?? refusal).replaceAll('@', '@\u200b').replaceAll('\n', ' ');
+            const message = (blocked?.message ?? (decision === 'ban'
+              ? 'This submission was closed by a prior account block.' : refusal)).replaceAll('@', '@\u200b').replaceAll('\n', ' ');
             const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pull.number });
             const marker = '<!-- nzik-contribution-block -->';
             if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
@@ -676,4 +760,5 @@ jobs:
               });
             }
             await github.rest.issues.lock(target);
-            core.setFailed(blocked ? 'This account is blocked from Theme Store contributions.' : 'Submission refused.');
+            if (!cleanupRetry) core.setFailed(blocked ? 'This account is blocked from Theme Store contributions.' : 'Submission refused.');
+            else if (!cleanupComplete) core.setFailed('Cleanup remains pending. The recorded branch state was preserved.');

@@ -11,11 +11,12 @@ const workflow = fs.readFileSync(path.join(__dirname, '../workflows/blocked-cont
 const script = workflow.slice(workflow.indexOf('            const event = context.payload;'));
 const functions = [
   ['async function forkCleanupToken(', 'async function cleanSubmissionBranch('],
-  ['async function repairCatalogIndex(', 'async function finishPublication('],
+  ['async function resetSubmissionBranch(', 'async function finishPublication('],
 ].map(([start, end]) => script.slice(script.indexOf(start), script.indexOf(end))).join('\n');
 
 const original = 'a'.repeat(40);
 const main = 'b'.repeat(40);
+const ancestor = 'e'.repeat(40);
 const repaired = 'c'.repeat(40);
 const concurrent = 'd'.repeat(40);
 const branch = 'nzik/theme-9fabc1ee-37b1-4d82-8d3b-f7b141ceb831';
@@ -34,6 +35,7 @@ function harness({ race, missingInstallation = false, environment = {} } = {}) {
   const temporaryRoot = path.resolve(os.tmpdir());
   const temporaryDirectory = path.join(temporaryRoot, 'nzik-fork-ref-test');
   const current = { head: { repo: fork, ref: branch, sha: original }, base: { sha: main } };
+  const cleanup = { head: original, reset: ancestor };
   const context = {
     Buffer,
     process: { env: { PATH: process.env.PATH, THEME_STORE_GITHUB_APP_PRIVATE_KEY: 'private-key', ...environment } },
@@ -96,7 +98,7 @@ function harness({ race, missingInstallation = false, environment = {} } = {}) {
   };
   vm.createContext(context);
   vm.runInContext(functions, context);
-  return { context, current, commands, apiCalls, appCalls, secrets, failures, statuses, removed, head: () => head };
+  return { context, current, cleanup, commands, apiCalls, appCalls, secrets, failures, statuses, removed, head: () => head };
 }
 
 test('moderation workflow script parses', () => {
@@ -104,44 +106,239 @@ test('moderation workflow script parses', () => {
   assert.doesNotThrow(() => new AsyncFunction('github', 'context', 'core', script));
 });
 
-test('index repair uses a repository-scoped App token and leases the checked head', async () => {
-  const h = harness();
-  await h.context.repairCatalogIndex(h.current, { schemaVersion: 1, themes: [] }, []);
-  assert.equal(h.head(), repaired);
-  assert.equal(h.appCalls.length, 2);
-  assert.deepEqual(JSON.parse(h.appCalls[1].options.body), { repository_ids: [fork.id], permissions: { contents: 'write' } });
-  for (const call of h.apiCalls.filter(call => ['getRef', 'createTree', 'createCommit'].includes(call.method))) {
-    assert.equal(call.args.headers.authorization, 'Bearer installation-token');
-  }
-  const commit = h.apiCalls.find(call => call.method === 'createCommit');
-  assert.deepEqual(Array.from(commit.args.parents), [original, main]);
-  assert.deepEqual(h.statuses, ['in review']);
-  assert.ok(h.apiCalls.some(call => call.method === 'removeLabel' && call.args.name === 'accepted'));
-  assert.equal(h.failures.length, 0);
+function lifecycle({ liveHead = original, decision = 'refused', resetFailure = false, deletionFailure = false,
+  approvalRace } = {}) {
+  const repo = { owner: 'N-Zik-Group', repo: 'N-Zik-Theme-Store' };
+  const labels = new Set([decision, 'reason: other', 'in review']);
+  const comments = [];
+  const failures = [];
+  const writes = [];
+  const publications = [];
+  let validatedRepair = false;
+  const faults = { reset: resetFailure, deletion: deletionFailure };
+  let refHead = liveHead;
+  let accounts = [];
+  const current = {
+    number: 7, user: { id: 101, login: 'Creator' },
+    head: { repo: fork, ref: branch, sha: liveHead },
+    base: { sha: main, ref: 'main', repo: { owner: { login: repo.owner }, name: repo.repo } },
+    state: 'open', merged: false, locked: false, draft: false, changed_files: 3,
+  };
+  const snapshot = () => JSON.parse(JSON.stringify({ ...current, labels: [...labels].map(name => ({ name })) }));
+  const initial = snapshot();
+  initial.head.sha = original;
+  const missing = () => Object.assign(new Error('Not found'), { status: 404 });
+  const github = { rest: {
+    pulls: {
+      get: async () => ({ data: snapshot() }),
+      update: async args => { current.state = args.state; return { data: snapshot() }; },
+      list: async () => ({ data: [] }),
+      listFiles: async () => ({ data: [] }),
+    },
+    repos: {
+      getCollaboratorPermissionLevel: async () => ({ data: { permission: 'write' } }),
+      getContent: async () => ({ data: { sha: main,
+        content: Buffer.from(JSON.stringify({ schemaVersion: 1, accounts })).toString('base64') } }),
+      compareCommits: async args => {
+        assert.equal(args.head, original);
+        assert.equal(args.base, main);
+        return { data: { merge_base_commit: { sha: ancestor } } };
+      },
+      getBranch: async () => {
+        if (!refHead) throw missing();
+        return { data: { protected: false, commit: { sha: refHead } } };
+      },
+      createOrUpdateFileContents: async args => {
+        accounts = JSON.parse(Buffer.from(args.content, 'base64')).accounts;
+        return { data: {} };
+      },
+    },
+    git: { getRef: async args => {
+      if (args.ref === 'heads/main') return { data: { object: { sha: main } } };
+      if (!refHead) throw missing();
+      return { data: { object: { sha: refHead } } };
+    } },
+    issues: {
+      createLabel: async () => {},
+      addLabels: async args => { args.labels.forEach(name => labels.add(name)); },
+      removeLabel: async args => { labels.delete(args.name); },
+      listComments: async () => ({ data: comments }),
+      createComment: async args => {
+        comments.push({ id: comments.length + 1, user: { login: 'github-actions[bot]' }, body: args.body });
+      },
+      updateComment: async args => { comments.find(comment => comment.id === args.comment_id).body = args.body; },
+      lock: async () => { current.locked = true; },
+    },
+  } };
+  github.paginate = async (method, args) => (await method(args)).data;
+  const temp = path.join(path.resolve(os.tmpdir()), 'nzik-lifecycle-test');
+  const globals = {
+    Buffer, github,
+    process: { env: { PATH: process.env.PATH, THEME_STORE_GITHUB_APP_PRIVATE_KEY: 'private-key',
+      GITHUB_WORKSPACE: temp, THEME_STORE_MERGE_TOKEN: 'upstream-token' } },
+    setTimeout: callback => callback(),
+    core: { setSecret() {}, info() {}, warning() {}, notice() {}, setFailed: message => failures.push(message) },
+    fetch: async url => ({ ok: true, status: 200, json: async () => url.endsWith('/installation')
+      ? { id: 501, account: { id: fork.owner.id }, permissions: { contents: 'write' } }
+      : { token: 'installation-token' } }),
+    require: name => {
+      if (name.endsWith('validate_submission.cjs')) return {
+        themeSubmission: () => ({ index: { schemaVersion: 1, themes: [] } }),
+        trustedCandidate: () => ({
+          head: original, changes: [], mergeTree: () => null,
+          validateRepairedIndex: () => {
+            validatedRepair = true;
+            if (approvalRace === 'head') { current.head.sha = concurrent; refHead = concurrent; }
+            if (approvalRace === 'decision') labels.delete('accepted');
+          },
+          publishValidatedMerge: () => {
+            assert.ok(validatedRepair);
+            publications.push({ parent: original });
+            current.merged = true;
+            current.state = 'closed';
+            current.merged_at = '2026-11-15T12:00:00Z';
+          },
+        }),
+      };
+      if (name === 'node:crypto') return { sign: () => Buffer.from('signature') };
+      if (name === 'node:fs') return { mkdtempSync: () => temp, rmSync() {} };
+      if (name === 'node:child_process') return { execFileSync: (_command, args) => {
+        if (args[0] !== 'push') return Buffer.alloc(0);
+        const next = args.at(-1).split(':')[0] || null;
+        if (next ? faults.reset : faults.deletion) throw new Error('Transient Git failure');
+        const expected = args[1].split(':').at(-1);
+        assert.equal(refHead, expected, 'Git must use the persisted expected head');
+        writes.push({ expected, next });
+        refHead = next;
+        if (next) { current.head.sha = next; current.changed_files = next === ancestor ? 0 : 3; }
+        return Buffer.alloc(0);
+      } };
+      return require(name);
+    },
+  };
+  return {
+    current, labels, comments, failures, faults, writes, publications,
+    head: () => refHead, blocked: () => accounts,
+    push(sha) { refHead = sha; current.head.sha = sha; current.changed_files = 3; },
+    async run({ dispatch = false } = {}) {
+      const payload = { repository: { id: 1, default_branch: 'main' },
+        ...(dispatch ? { inputs: { pull_request_number: '7' } }
+          : { action: 'labeled', label: { name: decision }, sender: { login: 'Moderator' }, pull_request: initial }) };
+      const context = vm.createContext({ ...globals, context: { repo,
+        eventName: dispatch ? 'workflow_dispatch' : 'pull_request_target', payload } });
+      await vm.runInContext(`(async () => {\n${script}\n})()`, context);
+    },
+  };
+}
+
+test('a refusal queued for an older head preserves newer work and requests fresh review', async () => {
+  const h = lifecycle({ liveHead: concurrent });
+  await h.run();
+  assert.equal(h.head(), concurrent);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.current.state, 'open');
+  assert.equal(h.current.locked, false);
+  assert.ok(h.labels.has('in review'));
+  assert.ok(!h.labels.has('refused'));
+  assert.ok(!h.labels.has('reason: other'));
+  assert.ok(h.comments.some(comment => comment.body.includes('nzik-moderation-stale:') &&
+    comment.body.includes(original) && comment.body.includes(concurrent)));
 });
 
-test('refusal reset uses the App token and confirms an empty pull request diff', async () => {
+test('a stale ban blocks the account while preserving newer branch work', async () => {
+  const h = lifecycle({ liveHead: concurrent, decision: 'ban' });
+  await h.run();
+  assert.equal(h.head(), concurrent);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.blocked()[0].githubId, 101);
+  assert.equal(h.current.state, 'closed');
+  assert.ok(h.labels.has('ban'));
+  assert.ok(h.labels.has('cleanup pending'));
+  assert.ok(!h.comments.some(comment => comment.body.includes('Submission removed from the branch.')));
+});
+
+for (const dispatch of [false, true]) {
+  test(`failed reset can be retried after closure via ${dispatch ? 'workflow_dispatch' : 'the original event'}`, async () => {
+    const h = lifecycle({ resetFailure: true });
+    await h.run();
+    assert.equal(h.head(), original);
+    assert.equal(h.current.state, 'closed');
+    assert.ok(h.current.locked);
+    assert.ok(h.labels.has('cleanup pending'));
+    h.faults.reset = false;
+    h.failures.length = 0;
+    await h.run({ dispatch });
+    assert.equal(h.head(), null);
+    assert.deepEqual(h.writes, [{ expected: original, next: ancestor }, { expected: ancestor, next: null }]);
+    assert.ok(!h.labels.has('cleanup pending'));
+    assert.equal(h.failures.length, 0);
+  });
+}
+
+test('a failed deletion stays pending and retries without resetting the branch again', async () => {
+  const h = lifecycle({ deletionFailure: true });
+  await h.run();
+  assert.equal(h.head(), ancestor);
+  assert.ok(h.labels.has('cleanup pending'));
+  h.failures.length = 0;
+  await h.run({ dispatch: true });
+  assert.match(h.failures[0], /Cleanup remains pending/);
+  h.faults.deletion = false;
+  await h.run({ dispatch: true });
+  assert.equal(h.head(), null);
+  assert.equal(h.writes.filter(write => write.next === ancestor).length, 1);
+  assert.ok(!h.labels.has('cleanup pending'));
+});
+
+test('cleanup retries remain bound to the original head when new work appears after failure', async () => {
+  const h = lifecycle({ resetFailure: true });
+  await h.run();
+  h.push(concurrent);
+  h.faults.reset = false;
+  await h.run({ dispatch: true });
+  assert.equal(h.head(), concurrent);
+  assert.equal(h.writes.length, 0);
+  assert.ok(h.labels.has('cleanup pending'));
+});
+
+test('repaired approval follows the common validation, merge confirmation and cleanup path', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  await h.run();
+  assert.deepEqual(h.publications, [{ parent: original }]);
+  assert.deepEqual(h.writes, [{ expected: original, next: null }]);
+  assert.ok(h.labels.has('merged'));
+  assert.ok(h.current.locked);
+});
+
+for (const approvalRace of ['head', 'decision']) {
+  test(`repaired approval is cancelled if the ${approvalRace} changes during validation`, async () => {
+    const h = lifecycle({ decision: 'accepted', approvalRace });
+    await h.run();
+    assert.equal(h.publications.length, 0);
+    assert.equal(h.writes.length, 0);
+    assert.match(h.failures[0], /changed during validation/);
+  });
+}
+
+test('refusal reset uses a scoped App token and the existing merge base, without importing main workflows', async () => {
   const h = harness();
-  assert.equal(await h.context.resetSubmissionBranch(h.current), true);
-  assert.equal(h.head(), main);
+  assert.equal(await h.context.resetSubmissionBranch(h.current, h.cleanup), true);
+  assert.equal(h.head(), ancestor);
   assert.equal(h.appCalls.length, 2);
+  assert.deepEqual(JSON.parse(h.appCalls[1].options.body), { repository_ids: [fork.id], permissions: { contents: 'write' } });
   assert.ok(h.apiCalls.filter(call => call.method === 'getRef')
     .every(call => call.args.headers.authorization === 'Bearer installation-token'));
 });
 
 for (const race of ['after-read', 'before-push']) {
-  for (const operation of ['reset', 'repair']) {
-    test(`${operation} preserves new work pushed ${race}`, async () => {
+    test(`reset preserves new work pushed ${race}`, async () => {
       const h = harness({ race });
-      const promise = operation === 'reset'
-        ? h.context.resetSubmissionBranch(h.current)
-        : h.context.repairCatalogIndex(h.current, { schemaVersion: 1, themes: [] }, []);
+      const promise = h.context.resetSubmissionBranch(h.current, h.cleanup);
       await assert.rejects(promise, /whether its head moved/);
       assert.equal(h.head(), concurrent);
       assert.equal(h.statuses.length, 0);
       assert.equal(h.removed.length, 1);
     });
-  }
 }
 
 test('branch deletion uses the same explicit lease without fetching a replacement', () => {
@@ -153,7 +350,7 @@ test('branch deletion uses the same explicit lease without fetching a replacemen
 
 test('Git credentials are masked and isolated from subprocess arguments and other secrets', async () => {
   const h = harness({ environment: { THEME_STORE_CLEANUP_TOKEN: 'legacy-token', THEME_STORE_MERGE_TOKEN: 'upstream-token' } });
-  await h.context.resetSubmissionBranch(h.current);
+  await h.context.resetSubmissionBranch(h.current, h.cleanup);
   const encoded = Buffer.from('x-access-token:installation-token').toString('base64');
   assert.ok(h.secrets.includes('installation-token'));
   assert.ok(h.secrets.includes(encoded));
@@ -173,11 +370,9 @@ test('Git credentials are masked and isolated from subprocess arguments and othe
   assert.equal(h.removed.length, 1);
 });
 
-test('missing installation stops repair and reset before any branch write', async () => {
+test('missing installation stops reset before any branch write', async () => {
   const h = harness({ missingInstallation: true });
-  await h.context.repairCatalogIndex(h.current, { themes: [] }, []);
-  assert.match(h.failures[0], /N-Zik Sign In installed/);
-  await assert.rejects(h.context.resetSubmissionBranch(h.current), /N-Zik Sign In installed/);
+  await assert.rejects(h.context.resetSubmissionBranch(h.current, h.cleanup), /N-Zik Sign In installed/);
   assert.equal(h.commands.length, 0);
   assert.equal(h.head(), original);
 });

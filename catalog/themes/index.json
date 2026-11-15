@@ -35,6 +35,11 @@
       "themeId": "835ee11b-421e-41a1-8de2-5c82ffbe4fca",
       "revision": 1,
       "manifestSha256": "87afe9f52ba96d73bc553f7f16a26018dea91165e7a4b67239dc780826152ee3"
+    },
+    {
+      "themeId": "768b807e-443c-4bab-b452-8df429baaeca",
+      "revision": 1,
+      "manifestSha256": "7e2d058dd9c8f65a2ad87aa44a21ea4de788269427f4c8e7622202268f3b328c"
     }
   ]
 }

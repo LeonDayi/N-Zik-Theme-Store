@@ -158,10 +158,29 @@ class CatalogValidationTest(unittest.TestCase):
 
     def test_appearance_still_accepts_equivalent_numeric_notation(self):
         path = self.folder / "appearance.json"
-        document = json.loads(self.appearance)
-        document["schemaVersion"] = 1.0
-        self.write_json(path.name, document)
-        catalog.validate_json(path, catalog.load_schema("appearance"))
+        validator = catalog.load_schema("appearance")
+        for literal in ("1", "1.0", "1e0", "-2.147483648e9", "2147483647.0", "0e-9999"):
+            with self.subTest(literal=literal):
+                path.write_text(
+                    '{"schemaVersion": 1.0, "categories": {"colors": {"mode": "system", '
+                    '"palette": "dynamic", "customAccent": ' + literal + '}}}', encoding="utf-8",
+                )
+                catalog.validate_json(path, validator)
+
+    def test_appearance_integer_tokens_are_checked_without_rounding(self):
+        path = self.folder / "appearance.json"
+        validator = catalog.load_schema("appearance")
+        for literal in ("1.0000000000000001", "2147483647.00000001", "1e-9999"):
+            with self.subTest(literal=literal):
+                path.write_text(
+                    '{"schemaVersion": 1, "categories": {"colors": {"mode": "system", '
+                    '"palette": "dynamic", "customAccent": ' + literal + '}}}', encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, "customAccent"):
+                    catalog.validate_json(path, validator)
+        path.write_text('{"schemaVersion": 1.0000000000000001, "categories": {}}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "schemaVersion"):
+            catalog.validate_json(path, validator)
 
     def test_duplicate_members_cannot_hide_invalid_metadata(self):
         path = self.folder / "index.json"
@@ -170,15 +189,40 @@ class CatalogValidationTest(unittest.TestCase):
             catalog.validate_json(path, catalog.load_schema("catalog"))
 
     def test_demo_versions_require_integer_notation(self):
-        demo = self.folder / "demo" / "v1"
-        demo.mkdir(parents=True)
-        for name in ("index.json", "visuals.json"):
-            with self.subTest(name=name), patch.object(catalog, "ROOT", self.folder):
-                for path in demo / "index.json", demo / "visuals.json":
-                    path.write_text('{"schemaVersion": 1}', encoding="utf-8")
-                (demo / name).write_text('{"schemaVersion": 1.0}', encoding="utf-8")
+        for name, sections in (("index.json", ("assets",)), ("visuals.json", ("covers", "banners"))):
+            with self.subTest(name=name):
+                path = self.write_json(name, {"schemaVersion": 1.0, **dict.fromkeys(sections, [])})
                 with self.assertRaisesRegex(ValueError, "unsupported index version"):
-                    catalog.validate_demo_assets()
+                    catalog.load_demo_index(path, sections)
+
+    def test_demo_indexes_use_android_byte_limit(self):
+        for name, sections in (("index.json", ("assets",)), ("visuals.json", ("covers", "banners"))):
+            with self.subTest(name=name):
+                document = {"schemaVersion": 1, **dict.fromkeys(sections, [])}
+                path = self.folder / name
+                at_limit = json.dumps(document).encode("utf-8").ljust(8192, b" ")
+                path.write_bytes(at_limit)
+                self.assertEqual(document, catalog.load_demo_index(path, sections))
+                path.write_bytes(at_limit + b" ")
+                with self.assertRaisesRegex(ValueError, "exceeds 8192 bytes"):
+                    catalog.load_demo_index(path, sections)
+
+    def test_demo_indexes_and_entries_are_closed(self):
+        entry = {"name": "atlas.jpg", "sha256": "a" * 64}
+        cases = (
+            ({"assets": [entry], "description": "Extra"}, "invalid demo index fields"),
+            ({}, "invalid demo index fields"),
+            ({"assets": {}}, "must be a list"),
+            ({"assets": [{**entry, "extra": True}]}, "invalid demo asset fields"),
+            ({"assets": [{"name": "atlas.jpg"}]}, "invalid demo asset fields"),
+            ({"assets": [{**entry, "name": 1}]}, "must be strings"),
+            ({"assets": [{**entry, "sha256": "A" * 64}]}, "invalid demo asset SHA-256"),
+        )
+        for changes, reason in cases:
+            with self.subTest(changes=changes):
+                path = self.write_json("index.json", {"schemaVersion": 1, **changes})
+                with self.assertRaisesRegex(ValueError, reason):
+                    catalog.load_demo_index(path, ("assets",))
 
     def test_playback_gallery_scenes_need_both_variants(self):
         previews = [

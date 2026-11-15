@@ -1,7 +1,9 @@
 import hashlib
 import io
 import json
+import re
 import unicodedata
+from decimal import Decimal
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError, validators
@@ -14,6 +16,7 @@ CATALOG_LIMIT = 512 * 1024
 THEME_DOCUMENT_LIMIT = 128 * 1024
 PREVIEW_LIMIT = 4 * 1024 * 1024
 CATALOG_SNAPSHOT_LIMIT = 16 * 1024 * 1024
+DEMO_INDEX_LIMIT = 8 * 1024
 
 
 def validate_metadata_const(validator, expected, value, schema):
@@ -27,6 +30,14 @@ MetadataValidator = validators.extend(
     Draft202012Validator,
     validators={"const": validate_metadata_const},
     type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", lambda _, value: type(value) is int),
+)
+
+AppearanceValidator = validators.extend(
+    Draft202012Validator,
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine(
+        "integer",
+        lambda _, value: type(value) is int or isinstance(value, Decimal) and value == value.to_integral_value(),
+    ),
 )
 
 
@@ -56,13 +67,13 @@ def load_json(path, limit=CATALOG_LIMIT):
         raise ValueError(f"{path}: expected UTF-8 JSON") from error
     if content.startswith("\ufeff"):
         raise ValueError(f"{path}: UTF-8 BOM is unsupported")
-    return json.loads(content, parse_constant=reject_nonfinite, object_pairs_hook=unique_members)
+    return json.loads(content, parse_float=Decimal, parse_constant=reject_nonfinite, object_pairs_hook=unique_members)
 
 
 def load_schema(name):
     schema = load_json(CATALOG / "schemas" / "v1" / f"{name}.schema.json")
     Draft202012Validator.check_schema(schema)
-    validator = Draft202012Validator if name == "appearance" else MetadataValidator
+    validator = AppearanceValidator if name == "appearance" else MetadataValidator
     return validator(schema)
 
 
@@ -184,6 +195,26 @@ def validate_snapshot(index_path, manifest_paths):
         raise ValueError("catalog: encoded Android snapshot exceeds 16 MiB")
 
 
+def load_demo_index(path, sections):
+    index = load_json(path, DEMO_INDEX_LIMIT)
+    if not isinstance(index, dict) or set(index) != {"schemaVersion", *sections}:
+        raise ValueError(f"{path}: invalid demo index fields")
+    if type(index["schemaVersion"]) is not int or index["schemaVersion"] != 1:
+        raise ValueError(f"{path}: unsupported index version")
+    for section in sections:
+        entries = index[section]
+        if not isinstance(entries, list):
+            raise ValueError(f"{path}: {section} must be a list")
+        for entry in entries:
+            if not isinstance(entry, dict) or set(entry) != {"name", "sha256"}:
+                raise ValueError(f"{path}: invalid demo asset fields in {section}")
+            if not isinstance(entry["name"], str) or not isinstance(entry["sha256"], str):
+                raise ValueError(f"{path}: demo asset name and SHA-256 must be strings")
+            if re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) is None:
+                raise ValueError(f"{path}: invalid demo asset SHA-256")
+    return index
+
+
 def validate_demo_assets():
     demo = ROOT / "demo" / "v1"
     palettes = ("atlas", "signal", "tide", "violet", "ember")
@@ -200,10 +231,8 @@ def validate_demo_assets():
                 raise ValueError(f"{path}: demo asset exceeds 512 KiB or is empty")
             check_hash(path, entry["sha256"])
 
-    base = load_json(demo / "index.json")
-    visuals = load_json(demo / "visuals.json")
-    if any(type(index["schemaVersion"]) is not int or index["schemaVersion"] != 1 for index in (base, visuals)):
-        raise ValueError("demo: unsupported index version")
+    base = load_demo_index(demo / "index.json", ("assets",))
+    visuals = load_demo_index(demo / "visuals.json", ("covers", "banners"))
     validate_assets(base["assets"], (covers - {"ember.jpg"}) | {"silence.mp3"})
     validate_assets(visuals["covers"], covers)
     validate_assets(visuals["banners"], banners)

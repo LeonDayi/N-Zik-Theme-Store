@@ -1,5 +1,6 @@
 import hashlib
 import json
+import unicodedata
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -53,6 +54,15 @@ def validate_theme(folder, manifest_validator, appearance_validator):
 BASE_SCENES = ("player", "queue", "lyrics", "home", "navigation", "album", "artist",
                "playlist", "local-playlist", "search", "search-albums", "search-artists")
 PREVIEW_ROLES = {"player": "player", "queue": "queue", "navigation": "navigation"}
+
+
+def validate_reserved_tags(manifest, verified_ids):
+    if manifest["author"]["githubId"] in verified_ids:
+        return
+    for tag in manifest["tags"]:
+        normalized = "".join(char for char in unicodedata.normalize("NFKD", tag).casefold() if char.isalnum())
+        if normalized in {"stock", "builtin"}:
+            raise ValueError(f'{manifest["title"]}: tag {tag!r} is reserved for verified N-Zik creators')
 
 
 def validate_gallery(manifest):
@@ -126,7 +136,8 @@ def main():
     catalog = validate_json(CATALOG / "themes" / "index.json", load_schema("catalog"))
     reviews_validator = load_schema("reviews")
     creator_validator = load_schema("creator")
-    validate_json(CATALOG / "creators" / "verified.json", load_schema("verified-creators"))
+    official = validate_json(CATALOG / "creators" / "verified.json", load_schema("verified-creators"))
+    verified_ids = set(official["githubIds"])
     blocked = validate_json(CATALOG / "creators" / "blocked.json", load_schema("blocked-creators"))
     blocked_ids = [entry["githubId"] for entry in blocked["accounts"]]
     if len(blocked_ids) != len(set(blocked_ids)):
@@ -159,6 +170,7 @@ def main():
         check_hash(folder / "manifest.json", entry["manifestSha256"])
         manifest = validate_theme(folder, manifest_validator, appearance_validator)
         validate_gallery(manifest)
+        validate_reserved_tags(manifest, verified_ids)
         author = manifest["author"]
         creator = creators.get(author["githubId"])
         if creator and creator["login"].casefold() != author["login"].casefold():

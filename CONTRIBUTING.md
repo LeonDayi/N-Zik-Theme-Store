@@ -9,12 +9,14 @@ Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Use the [issue forms](https://
 3. Set the SHA-256 of the exact appearance and preview files in the manifest, then add the manifest's SHA-256 to [the index](catalog/themes/index.json).
 4. Run `uv run --no-project --with-requirements requirements-validation.txt python .github/scripts/validate_catalog.py` and open a PR. The maintainer verifies authorship, licensing, media and compatibility before merging.
 
+The `Stock` and `Built-in` tags are reserved for verified N-Zik creators, including variants in capitalization, accents, or punctuation.
+
 Compute hashes with `sha256sum <path>` on Linux or `Get-FileHash <path> -Algorithm SHA256` in PowerShell. Use lowercase hashes in JSON. The [README](README.md) explains compatibility and the file layout.
 
 ## Update or withdraw a theme
 
 - **Update:** Keep the same ID and author. Before the stable release, update revision 1 and its manifest hash in the index. After the stable release, create the next revision directory, keep older directories intact, and update the index entry.
-- **Withdraw:** Remove the entry from the index and explain the request in the PR. The revision directories preserve the publication history. Contact a moderator privately if removal involves sensitive material.
+- **Withdraw:** Submit the request from N-Zik, or open a PR from a `nzik/withdraw-<themeId>` branch on your own fork. Change only [the index](catalog/themes/index.json) by removing the entry for your published theme. Moderation checks the numeric GitHub ID in the current manifest before accepting the request. The revision directories preserve the publication history. Contact a moderator privately if removal involves sensitive material.
 
 ## Licensing
 

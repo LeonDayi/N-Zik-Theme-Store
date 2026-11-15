@@ -40,6 +40,7 @@ jobs:
               'update creator profile': '0052cc',
               'new theme': '0e8a16',
               'theme update': '006b75',
+              'theme withdrawal': 'd93f0b',
               'theme review': '5319e7'
             };
             async function ensureLabel(name, color) {
@@ -63,6 +64,8 @@ jobs:
             const isSubmission = authorOwnsHead && pull.head.ref === `nzik/creator-profile-${pull.user.id}`;
             const isThemeSubmission = authorOwnsHead
               && /^nzik\/theme-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(pull.head.ref);
+            const withdrawalBranch = /^nzik\/withdraw-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.exec(pull.head.ref);
+            const isWithdrawal = authorOwnsHead && Boolean(withdrawalBranch);
             const reviewBranch = authorOwnsHead && /^nzik\/review-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})-([1-9]\d*)-([1-9]\d*)$/.exec(pull.head.ref);
             const isReview = reviewBranch && reviewBranch[3] === String(pull.user.id);
             const reviewPath = isReview ? `catalog/themes/${reviewBranch[1]}/${reviewBranch[2]}/reviews.json` : '';
@@ -74,9 +77,83 @@ jobs:
               });
               if (!['admin', 'maintain', 'write'].includes(access.permission)) return;
             }
+            const indexPath = 'catalog/themes/index.json';
+            const { isDeepStrictEqual } = require('node:util');
+            async function readFile(path, sha, repository = context.repo) {
+              const { data } = await github.rest.repos.getContent({ ...repository, path, ref: sha });
+              return Buffer.from(data.content, 'base64');
+            }
+            const forkRepository = current => ({
+              owner: current.head.repo.owner.login, repo: current.head.repo.name
+            });
+            async function compareIndex(current) {
+              const { data: comparison } = await github.rest.repos.compareCommits({
+                ...context.repo, base: current.base.sha, head: current.head.sha
+              });
+              const ancestor = comparison.merge_base_commit.sha;
+              const [previous, submitted] = await Promise.all([
+                readFile(indexPath, ancestor),
+                readFile(indexPath, current.head.sha, forkRepository(current))
+              ]);
+              return [JSON.parse(previous), JSON.parse(submitted)];
+            }
+            const manifestPath = /^catalog\/themes\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/[1-9]\d*\/manifest\.json$/;
+            async function validateReservedTags(current, files, indexComparison) {
+              const paths = new Set(files.filter(file => file.status !== 'removed' &&
+                manifestPath.test(file.filename)).map(file => file.filename));
+              if (indexComparison) {
+                const [previous, submitted] = indexComparison;
+                const existing = new Map(previous.themes.map(row => [row.themeId, row]));
+                for (const row of submitted.themes) {
+                  if (isDeepStrictEqual(existing.get(row.themeId), row)) continue;
+                  const path = `catalog/themes/${row.themeId}/${row.revision}/manifest.json`;
+                  if (!manifestPath.test(path)) throw new Error('Invalid theme manifest path.');
+                  paths.add(path);
+                }
+              }
+              if (!paths.size) return;
+              const { githubIds } = JSON.parse(await readFile('catalog/creators/verified.json', current.base.sha));
+              const verified = new Set(githubIds);
+              const reserved = new Set(['stock', 'builtin']);
+              for (const path of paths) {
+                const manifest = JSON.parse(await readFile(path, current.head.sha, forkRepository(current)));
+                const hasReservedTag = manifest.tags.some(tag =>
+                  reserved.has(tag.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')));
+                if (hasReservedTag && (!verified.has(pull.user.id) || !verified.has(manifest.author?.githubId))) {
+                  throw new Error('Stock and Built-in tags are reserved for verified N-Zik creators.');
+                }
+              }
+            }
+            async function withdrawalIndex(current, files) {
+              if (!isWithdrawal || current.head.repo?.owner?.id !== pull.user.id ||
+                  current.head.ref !== pull.head.ref || files.length !== 1 || files[0].filename !== indexPath ||
+                  files[0].status !== 'modified') {
+                throw new Error('A theme withdrawal must modify only the catalog index from an author-owned withdrawal branch.');
+              }
+              const themeId = withdrawalBranch[1];
+              const [previous, submitted] = await compareIndex(current);
+              const entry = previous.themes.find(row => row.themeId === themeId);
+              const removeEntry = index => ({ ...index, themes: index.themes.filter(row => row.themeId !== themeId) });
+              if (!entry || !isDeepStrictEqual(removeEntry(previous), submitted)) {
+                throw new Error('A theme withdrawal must remove exactly its own index entry.');
+              }
+              const latest = JSON.parse(await readFile(indexPath, current.base.sha));
+              if (!isDeepStrictEqual(entry, latest.themes.find(row => row.themeId === themeId))) {
+                throw new Error('This theme changed on main. Resubmit the withdrawal from N-Zik.');
+              }
+              const bytes = await readFile(`catalog/themes/${themeId}/${entry.revision}/manifest.json`, current.base.sha);
+              const { createHash } = require('node:crypto');
+              const manifest = JSON.parse(bytes);
+              if (createHash('sha256').update(bytes).digest('hex') !== entry.manifestSha256 ||
+                  manifest.themeId !== themeId || manifest.revision !== entry.revision ||
+                  manifest.author?.githubId !== pull.user.id) {
+                throw new Error('Only the owner of the published theme may request its withdrawal.');
+              }
+              return removeEntry(latest);
+            }
             const themeLabels = ['new theme', 'theme update'];
             const isTheme = item => item.labels.some(label => themeLabels.includes(label.name));
-            if (event.action === 'closed' && ((!isSubmission && !isReview && !isTheme(pull)) || !pull.merged)) return;
+            if (event.action === 'closed' && ((!isSubmission && !isReview && !isWithdrawal && !isTheme(pull)) || !pull.merged)) return;
             const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
             if (current.merged && event.action !== 'closed') return;
             const currentLabels = new Set(current.labels.map(label => label.name));
@@ -101,7 +178,8 @@ jobs:
               });
               const types = new Set();
               const themes = new Set();
-              for (const file of files) {
+              if (isWithdrawal) types.add('theme withdrawal');
+              for (const file of isWithdrawal ? [] : files) {
                 if (file.status === 'removed') continue;
                 if (isReview && file.filename === reviewPath) {
                   types.add('theme review');
@@ -196,6 +274,39 @@ jobs:
                 }
               }
             }
+            async function cleanSubmissionBranch(expectedSha, merged) {
+              const token = process.env.THEME_STORE_CLEANUP_TOKEN;
+              if (!token || !(isSubmission || isThemeSubmission || isReview || isWithdrawal)) return;
+              try {
+                const { data: resolved } = await github.rest.pulls.get({
+                  ...context.repo, pull_number: pull.number
+                });
+                const fork = resolved.head.repo;
+                const branch = resolved.head.ref;
+                if (resolved.state !== 'closed' || (merged ? !resolved.merged : resolved.merged || resolved.changed_files !== 0) ||
+                    !fork || !fork.default_branch || fork.id === event.repository.id || fork.id !== pull.head.repo?.id ||
+                    fork.owner.id !== pull.user.id || branch !== pull.head.ref || branch === fork.default_branch ||
+                    branch === resolved.base.ref || resolved.head.sha !== expectedSha) return;
+
+                const repository = { owner: fork.owner.login, repo: fork.name };
+                const headers = { authorization: 'Bearer ' + token };
+                const query = { state: 'open', head: `${fork.owner.login}:${branch}`, per_page: 100 };
+                const [upstreamOpen, forkOpen] = await Promise.all([
+                  github.paginate(github.rest.pulls.list, { ...context.repo, ...query }),
+                  github.paginate(github.rest.pulls.list, { ...repository, ...query, headers })
+                ]);
+                if (upstreamOpen.length || forkOpen.length) return;
+
+                const { data: branchInfo } = await github.rest.repos.getBranch({ ...repository, branch, headers });
+                if (branchInfo.protected || branchInfo.commit.sha !== expectedSha) return;
+                const ref = 'heads/' + branch;
+                const { data: head } = await github.rest.git.getRef({ ...repository, ref, headers });
+                if (head.object.sha !== expectedSha) return;
+                await github.rest.git.deleteRef({ ...repository, ref, headers });
+              } catch (error) {
+                if (error.status !== 404) core.warning('Could not delete the processed submission branch.');
+              }
+            }
             async function announcePublication() {
               if (isThemeSubmission) await recordThemePublicationDate();
               await status('merged');
@@ -205,7 +316,9 @@ jobs:
                 if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
                   await github.rest.issues.createComment({
                     ...target,
-                    body: marker + '\n' + (isReview
+                    body: marker + '\n' + (isWithdrawal
+                      ? 'Your theme withdrawal was accepted and merged. Refresh the Theme Store to see the updated catalog.'
+                      : isReview
                       ? 'Your review was accepted and merged. Refresh the theme in N-Zik to see it.'
                       : isTheme(current)
                       ? 'Your theme was accepted and merged. Refresh the Theme Store in N-Zik to view and download it.'
@@ -215,8 +328,36 @@ jobs:
               }
               await github.rest.issues.lock(target);
             }
+            async function repairCatalogIndex(current, index, entries) {
+              const token = process.env.THEME_STORE_CLEANUP_TOKEN;
+              const repository = current.head.repo;
+              if (!repository || (!token && repository.id !== event.repository.id)) {
+                core.setFailed('The bot needs write access to the submission branch to repair the index.');
+                return;
+              }
+              const fork = { owner: repository.owner.login, repo: repository.name };
+              const headers = token ? { authorization: 'Bearer ' + token } : {};
+              const branch = 'heads/' + current.head.ref;
+              const { data: liveHead } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
+              if (liveHead.object.sha !== current.head.sha) {
+                core.setFailed('The submission changed while repairing the index.');
+                return;
+              }
+              const { data: base } = await github.rest.git.getCommit({ ...context.repo, commit_sha: current.base.sha });
+              entries.push({ path: indexPath, mode: '100644', type: 'blob', content: JSON.stringify(index, null, 2) + '\n' });
+              const { data: tree } = await github.rest.git.createTree({ ...fork, base_tree: base.tree.sha, tree: entries, headers });
+              const { data: commit } = await github.rest.git.createCommit({
+                ...fork, message: 'Resolve catalog index against main', tree: tree.sha,
+                parents: [current.head.sha, current.base.sha], headers
+              });
+              await github.rest.git.updateRef({ ...fork, ref: branch, sha: commit.sha, force: false, headers });
+              await status('in review');
+              if (currentLabels.has('accepted')) await github.rest.issues.removeLabel({ ...target, name: 'accepted' });
+              core.notice('Catalog index repaired. Apply accepted again after the new commit passes validation.');
+            }
             if (pull.merged) {
               await announcePublication();
+              await cleanSubmissionBranch(pull.head.sha, true);
               return;
             }
             const { data } = await github.rest.repos.getContent({
@@ -226,18 +367,34 @@ jobs:
             if (list.schemaVersion !== 1 || !Array.isArray(list.accounts)) throw new Error('Invalid moderation list');
             let blocked = list.accounts.find(account => account.githubId === pull.user.id);
             if (labelAdded === 'accepted' && !blocked) {
-              if ((!isSubmission && !isReview && !isTheme(current)) || current.state !== 'open'
+              if ((!isSubmission && !isReview && !isWithdrawal && !isTheme(current)) || current.state !== 'open'
                   || current.draft || !currentLabels.has('accepted') || currentLabels.has('refused') || currentLabels.has('ban')) return;
               if (current.head.sha !== pull.head.sha) {
                 core.setFailed('The submission changed after approval. Review the new commit before accepting it.');
                 return;
               }
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                ...context.repo, pull_number: pull.number, per_page: 100
+              });
+              if (!isWithdrawal) {
+                const indexComparison = files.some(file => file.filename === indexPath) ? await compareIndex(current) : null;
+                await validateReservedTags(current, files, indexComparison);
+                if (indexComparison) {
+                  const [previous, submitted] = indexComparison;
+                  const present = new Set(submitted.themes.map(row => row.themeId));
+                  if (previous.themes.some(row => !present.has(row.themeId))) {
+                    core.setFailed('Submit theme withdrawals separately from other catalog changes.');
+                    return;
+                  }
+                }
+              }
+              if (isWithdrawal && current.mergeable === false) {
+                const index = await withdrawalIndex(current, files);
+                await repairCatalogIndex(current, index, []);
+                return;
+              }
               if (isThemeSubmission && current.mergeable === false) {
-                const indexPath = 'catalog/themes/index.json';
                 const themeId = current.head.ref.slice('nzik/theme-'.length);
-                const files = await github.paginate(github.rest.pulls.listFiles, {
-                  ...context.repo, pull_number: pull.number, per_page: 100
-                });
                 if (!files.some(file => file.filename === indexPath) || files.some(file =>
                   file.filename !== indexPath && (!file.filename.startsWith(`catalog/themes/${themeId}/`) || file.status !== 'added'))) {
                   core.setFailed('The conflict includes changes outside the submitted revision. Resubmit from N-Zik.');
@@ -266,35 +423,11 @@ jobs:
                   core.setFailed('This theme changed on main. Resubmit against the current revision.');
                   return;
                 }
-                const token = process.env.THEME_STORE_CLEANUP_TOKEN;
-                const repository = current.head.repo;
-                if (!repository || (!token && repository.id !== event.repository.id)) {
-                  core.setFailed('The bot needs write access to the submission branch to repair the index.');
-                  return;
-                }
-                const fork = { owner: repository.owner.login, repo: repository.name };
-                const headers = token ? { authorization: 'Bearer ' + token } : {};
-                const branch = 'heads/' + current.head.ref;
-                const { data: liveHead } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
-                if (liveHead.object.sha !== current.head.sha) {
-                  core.setFailed('The submission changed while repairing the index.');
-                  return;
-                }
-                const { data: base } = await github.rest.git.getCommit({ ...context.repo, commit_sha: current.base.sha });
                 currentIndex.themes = currentIndex.themes.filter(entry => entry.themeId !== themeId);
                 currentIndex.themes.push(submitted);
                 const entries = files.filter(file => file.filename !== indexPath).map(file =>
                   ({ path: file.filename, mode: '100644', type: 'blob', sha: file.sha }));
-                entries.push({ path: indexPath, mode: '100644', type: 'blob', content: JSON.stringify(currentIndex, null, 2) + '\n' });
-                const { data: tree } = await github.rest.git.createTree({ ...fork, base_tree: base.tree.sha, tree: entries, headers });
-                const { data: commit } = await github.rest.git.createCommit({
-                  ...fork, message: 'Resolve catalog index against main', tree: tree.sha,
-                  parents: [current.head.sha, current.base.sha], headers
-                });
-                await github.rest.git.updateRef({ ...fork, ref: branch, sha: commit.sha, force: false, headers });
-                await status('in review');
-                if (currentLabels.has('accepted')) await github.rest.issues.removeLabel({ ...target, name: 'accepted' });
-                core.notice('Catalog index repaired. Apply accepted again after the new commit passes validation.');
+                await repairCatalogIndex(current, currentIndex, entries);
                 return;
               }
               const { data: validation } = await github.rest.actions.listWorkflowRuns({
@@ -305,10 +438,8 @@ jobs:
                 core.setFailed('Catalog validation must pass on the approved commit. Retry approval after the check succeeds.');
                 return;
               }
+              if (isWithdrawal) await withdrawalIndex(current, files);
               if (isReview) {
-                const files = await github.paginate(github.rest.pulls.listFiles, {
-                  ...context.repo, pull_number: pull.number, per_page: 100
-                });
                 if (files.length !== 1 || files[0].filename !== reviewPath ||
                     !['added', 'modified'].includes(files[0].status)) {
                   core.setFailed('A review submission must change only its revision reviews.json.');
@@ -348,6 +479,7 @@ jobs:
                 return;
               }
               await announcePublication();
+              await cleanSubmissionBranch(pull.head.sha, true);
               return;
             }
             if (decision === 'ban' && !blocked) {
@@ -363,7 +495,7 @@ jobs:
               });
             }
             if (!blocked && decision !== 'refused') {
-              if ((isSubmission || isThemeSubmission || isReview) && current.state === 'open' && !current.labels.some(label => ['accepted', 'refused', 'ban'].includes(label.name))) {
+              if ((isSubmission || isThemeSubmission || isReview || isWithdrawal) && current.state === 'open' && !current.labels.some(label => ['accepted', 'refused', 'ban'].includes(label.name))) {
                 await status('in review');
               }
               return;
@@ -372,7 +504,7 @@ jobs:
               ? [...currentLabels].find(label => Object.hasOwn(reasons, label))
               : ''));
             let cleaned = false;
-            if (current.state === 'open' && (isSubmission || isThemeSubmission || isReview) && current.head.repo?.id === pull.head.repo.id
+            if (current.state === 'open' && (isSubmission || isThemeSubmission || isReview || isWithdrawal) && current.head.repo?.id === pull.head.repo.id
                 && current.head.ref === pull.head.ref && current.base.ref === ref) {
               const [owner, repo] = current.head.repo.full_name.split('/');
               const branch = 'heads/' + current.head.ref;
@@ -405,6 +537,7 @@ jobs:
             }
             if (current.state === 'open') {
               await github.rest.pulls.update({ ...context.repo, pull_number: pull.number, state: 'closed' });
+              if (cleaned) await cleanSubmissionBranch(current.base.sha, false);
             }
             const refusal = `Submission refused (${reason.slice(8)}). ${reasons[reason]} You may send a corrected version.`;
             const message = (blocked?.message ?? refusal).replaceAll('@', '@\u200b').replaceAll('\n', ' ');

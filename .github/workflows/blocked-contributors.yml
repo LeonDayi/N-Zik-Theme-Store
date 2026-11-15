@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       pull_request_number:
-        description: 'Retry incomplete cleanup for a closed submission (leave empty to initialize labels)'
+        description: 'Retry incomplete submission cleanup (leave empty to initialize labels)'
         required: false
         type: string
 permissions:
@@ -182,9 +182,9 @@ jobs:
             if (current.merged && event.action !== 'closed' && event.action !== 'cleanup_retry' &&
                 !(managedSubmission && labelAdded === 'accepted')) return;
             const currentLabels = new Set(current.labels.map(label => label.name));
-            const cleanupRetry = current.state === 'closed' && !current.merged && currentLabels.has('cleanup pending');
-            if (event.action === 'cleanup_retry' && (current.state !== 'closed' || (!current.merged && !cleanupRetry))) {
-              core.setFailed('Cleanup retry requires a closed submission with the cleanup pending label.');
+            const cleanupRetry = !current.merged && currentLabels.has('cleanup pending');
+            if (event.action === 'cleanup_retry' && !current.merged && !cleanupRetry) {
+              core.setFailed('Cleanup retry requires a submission with the cleanup pending label.');
               return;
             }
             if (event.action === 'closed' && !cleanupRetry &&
@@ -200,7 +200,14 @@ jobs:
               if (current.state !== 'open') return;
               const selected = Object.keys(reasons).filter(name => currentLabels.has(name));
               const decisions = ['refused', 'ban'].filter(name => currentLabels.has(name));
+              const eventLabels = new Set(pull.labels.map(label => label.name));
+              const eventReasons = Object.keys(reasons).filter(name => eventLabels.has(name));
+              const eventDecisions = ['refused', 'ban'].filter(name => eventLabels.has(name));
               if (!currentLabels.has(labelAdded) || selected.length !== 1 || decisions.length !== 1) return;
+              // A queued first label must not borrow the reason/decision from a
+              // later moderation attempt. Only the complete event may act.
+              if (!eventLabels.has(labelAdded) || eventReasons.length !== 1 || eventDecisions.length !== 1 ||
+                  selected[0] !== eventReasons[0] || decisions[0] !== eventDecisions[0]) return;
               decision = decisions[0];
               reason = selected[0];
             }
@@ -464,20 +471,26 @@ jobs:
                 await github.rest.issues.addLabels({ ...target, labels: ['cleanup pending'] });
               }
             }
-            async function preserveStaleRefusal() {
+            async function preserveStaleRefusal(expectedSha = pull.head.sha) {
+              const marker = `<!-- nzik-moderation-stale:${expectedSha} -->`;
+              const comments = await github.paginate(github.rest.issues.listComments, target);
+              if (comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
+                core.notice('Ignored an already processed stale refusal. Current moderation labels were preserved.');
+                return;
+              }
               await status('in review');
-              for (const name of ['accepted', 'refused', ...Object.keys(reasons)]) {
-                if (!currentLabels.has(name)) continue;
+              for (const name of ['accepted', 'refused', 'cleanup pending', ...Object.keys(reasons)]) {
+                if (!currentLabels.has(name) && name !== 'cleanup pending') continue;
                 try { await github.rest.issues.removeLabel({ ...target, name }); }
                 catch (error) { if (error.status !== 404) throw error; }
               }
-              const marker = `<!-- nzik-moderation-stale:${pull.head.sha} -->`;
-              const comments = await github.paginate(github.rest.issues.listComments, target);
-              if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
-                await github.rest.issues.createComment({ ...target, body: marker + '\n' +
-                  `The refusal concerned commit ${pull.head.sha}, but this submission now points to ${current.head.sha}. ` +
-                  'The newer work was preserved and the pull request remains open for a fresh review.' });
-              }
+              const pending = await cleanupComment();
+              if (pending) await github.rest.issues.updateComment({ ...context.repo, comment_id: pending.id,
+                body: '<!-- nzik-cleanup-cancelled -->\nCleanup was cancelled because newer submission work was detected. ' +
+                  'The branch was preserved for a fresh review.' });
+              await github.rest.issues.createComment({ ...target, body: marker + '\n' +
+                `The refusal concerned commit ${expectedSha}, but this submission now points to ${current.head.sha}. ` +
+                'The newer work was preserved and the pull request remains open for a fresh review.' });
               core.setFailed('The submission changed after refusal. Review the new commit before refusing it.');
             }
             async function deleteWithdrawnTheme() {
@@ -550,22 +563,40 @@ jobs:
             async function resetSubmissionBranch(current, state) {
               const repository = current.head.repo;
               if (repository.owner.id !== pull.user.id) throw new Error('The submission branch owner changed.');
+              const query = { state: 'open', head: `${repository.owner.login}:${current.head.ref}`, per_page: 100 };
+              const [upstreamOpen, forkOpen] = await Promise.all([
+                github.paginate(github.rest.pulls.list, { ...context.repo, ...query }),
+                github.paginate(github.rest.pulls.list, { owner: repository.owner.login, repo: repository.name, ...query })
+              ]);
+              if (upstreamOpen.some(item => item.number !== pull.number) || forkOpen.length) {
+                throw new Error('Other open pull requests use this branch. Cleanup remains pending.');
+              }
               const token = await forkCleanupToken(repository);
               if (!token) throw new Error('Submission reset needs N-Zik Sign In installed on the fork with Contents: write.');
               core.setSecret(token);
               const fork = { owner: repository.owner.login, repo: repository.name };
               const branch = 'heads/' + current.head.ref;
               const headers = { authorization: 'Bearer ' + token };
+              const changed = sha => Object.assign(new Error('Submission branch changed since moderation. New work was preserved.'),
+                { code: 'NZIK_SUBMISSION_CHANGED', head: sha });
               let head;
               try { ({ data: head } = await github.rest.git.getRef({ ...fork, ref: branch, headers })); }
               catch (error) { if (error.status === 404) return true; throw error; }
               if (![state.head, state.reset].includes(head.object.sha)) {
-                throw new Error('Submission branch changed since moderation. New work was preserved.');
+                throw changed(head.object.sha);
               }
               if (head.object.sha !== state.reset) {
                 // The merge base already belongs to this submission's history;
                 // resetting to it does not import newer upstream workflow files.
-                writeSubmissionRef(repository, current.head.ref, state.head, state.reset, token);
+                try {
+                  writeSubmissionRef(repository, current.head.ref, state.head, state.reset, token);
+                } catch (error) {
+                  // Distinguish a lease rejection from an access/network failure
+                  // so a stale refusal can remain open for a new review.
+                  const { data: live } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
+                  if (![state.head, state.reset].includes(live.object.sha)) throw changed(live.object.sha);
+                  if (live.object.sha !== state.reset) throw error;
+                }
               }
               const { data: reset } = await github.rest.git.getRef({ ...fork, ref: branch, headers });
               if (reset.object.sha === state.reset) {
@@ -573,11 +604,12 @@ jobs:
                   const { data: refreshed } = await github.rest.pulls.get({
                     ...context.repo, pull_number: pull.number
                   });
+                  if (![state.head, state.reset].includes(refreshed.head.sha)) throw changed(refreshed.head.sha);
                   if (refreshed.head.sha === reset.object.sha && refreshed.changed_files === 0) return true;
                   await new Promise(resolve => setTimeout(resolve, 2000));
                 }
                 core.warning('The branch was reset, but GitHub still reports the previous pull request diff.');
-              }
+              } else if (reset.object.sha !== state.head) throw changed(reset.object.sha);
               return false;
             }
             async function finishPublication(confirmed) {
@@ -737,6 +769,11 @@ jobs:
               try {
                 cleaned = await resetSubmissionBranch(current, cleanup);
               } catch (error) {
+                if (error.code === 'NZIK_SUBMISSION_CHANGED' && !blocked && decision === 'refused' && current.state === 'open') {
+                  current.head.sha = error.head;
+                  await preserveStaleRefusal(cleanup.head);
+                  return;
+                }
                 core.warning('Cleanup is pending. Check fork access or whether the submission has newer work.');
               }
             }

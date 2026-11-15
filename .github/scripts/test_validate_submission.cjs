@@ -237,4 +237,16 @@ test('a repaired index validates and publishes current main without writing its 
   assert.equal(git('show', merged + ':.github/workflows/test.yml'), 'current trusted workflow');
   assert.equal(git('rev-parse', 'refs/pull/4/head'), head);
   assert.equal(git('show', head + ':.github/workflows/test.yml'), 'old workflow already in the fork');
+
+  // A conflicting main-side addition is not an index conflict and must never
+  // be silently replaced by automatic repair.
+  git('reset', '--hard', base);
+  put('catalog/themes/submission.json', 'different main work');
+  git('add', '.');
+  git('commit', '-qm', 'Independent conflicting file on main');
+  const conflictingBase = git('rev-parse', 'HEAD');
+  const conflicting = trustedCandidate(root, { number: 4, base: { sha: conflictingBase }, head: { sha: head } });
+  assert.throws(() => conflicting.validateRepairedIndex({ schemaVersion: 1, themes: ['main', 'submission'] }),
+    /cannot replace a conflicting file added to main/);
+  assert.throws(() => conflicting.publishValidatedMerge('Unvalidated conflicting repair'), /must pass/);
 });

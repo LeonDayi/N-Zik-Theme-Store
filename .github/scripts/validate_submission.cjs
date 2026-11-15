@@ -235,6 +235,11 @@ function trustedCandidate(root, current) {
       try {
         indexed('read-tree', base.sha);
         for (const file of changes) {
+          if (file.filename !== themeIndexPath) {
+            const existing = revision('ls-tree', base.sha, '--', file.filename);
+            assert(!existing || existing === `100644 blob ${blob(file.filename)}\t${file.filename}`,
+              'Index repair cannot replace a conflicting file added to main.');
+          }
           const sha = file.filename === themeIndexPath
             ? run('git', ['hash-object', '-w', '--stdin'], {
               input: Buffer.from(JSON.stringify(index, null, 2) + '\n'),

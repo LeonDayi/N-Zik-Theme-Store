@@ -92,10 +92,11 @@ function harness({ race, missingInstallation = false, environment = {} } = {}) {
         createCommit: async args => { apiCalls.push({ method: 'createCommit', args }); return { data: { sha: repaired } }; },
         updateRef: async () => { assert.fail('Ref writes must use a Git lease'); },
       },
-      pulls: { get: async () => ({ data: { head: { sha: head }, changed_files: 0 } }) },
+      pulls: { get: async () => ({ data: { head: { sha: head }, changed_files: 0 } }), list: async () => ({ data: [] }) },
       issues: { removeLabel: async args => apiCalls.push({ method: 'removeLabel', args }) },
     } },
   };
+  context.github.paginate = async (method, args) => (await method(args)).data;
   vm.createContext(context);
   vm.runInContext(functions, context);
   return { context, current, cleanup, commands, apiCalls, appCalls, secrets, failures, statuses, removed, head: () => head };
@@ -107,7 +108,7 @@ test('moderation workflow script parses', () => {
 });
 
 function lifecycle({ liveHead = original, decision = 'refused', resetFailure = false, deletionFailure = false,
-  approvalRace } = {}) {
+  approvalRace, resetRace } = {}) {
   const repo = { owner: 'N-Zik-Group', repo: 'N-Zik-Theme-Store' };
   const labels = new Set([decision, 'reason: other', 'in review']);
   const comments = [];
@@ -115,7 +116,9 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
   const writes = [];
   const publications = [];
   let validatedRepair = false;
-  const faults = { reset: resetFailure, deletion: deletionFailure };
+  let forkReads = 0;
+  const faults = { reset: resetFailure, deletion: deletionFailure, close: false };
+  const otherPulls = { upstream: [], fork: [] };
   let refHead = liveHead;
   let accounts = [];
   const current = {
@@ -131,8 +134,12 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
   const github = { rest: {
     pulls: {
       get: async () => ({ data: snapshot() }),
-      update: async args => { current.state = args.state; return { data: snapshot() }; },
-      list: async () => ({ data: [] }),
+      update: async args => {
+        if (faults.close) throw new Error('Transient close failure');
+        current.state = args.state;
+        return { data: snapshot() };
+      },
+      list: async args => ({ data: args.owner === repo.owner ? otherPulls.upstream : otherPulls.fork }),
       listFiles: async () => ({ data: [] }),
     },
     repos: {
@@ -140,7 +147,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
       getContent: async () => ({ data: { sha: main,
         content: Buffer.from(JSON.stringify({ schemaVersion: 1, accounts })).toString('base64') } }),
       compareCommits: async args => {
-        assert.equal(args.head, original);
+        assert.ok([original, concurrent].includes(args.head));
         assert.equal(args.base, main);
         return { data: { merge_base_commit: { sha: ancestor } } };
       },
@@ -155,6 +162,10 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
     },
     git: { getRef: async args => {
       if (args.ref === 'heads/main') return { data: { object: { sha: main } } };
+      if (++forkReads === 1 && resetRace === 'before-read') {
+        refHead = concurrent;
+        current.head.sha = concurrent;
+      }
       if (!refHead) throw missing();
       return { data: { object: { sha: refHead } } };
     } },
@@ -206,24 +217,35 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
         if (args[0] !== 'push') return Buffer.alloc(0);
         const next = args.at(-1).split(':')[0] || null;
         if (next ? faults.reset : faults.deletion) throw new Error('Transient Git failure');
+        if (next && resetRace === 'during-push') {
+          refHead = concurrent;
+          current.head.sha = concurrent;
+          throw new Error('stale info');
+        }
         const expected = args[1].split(':').at(-1);
         assert.equal(refHead, expected, 'Git must use the persisted expected head');
         writes.push({ expected, next });
         refHead = next;
         if (next) { current.head.sha = next; current.changed_files = next === ancestor ? 0 : 3; }
+        if (next && resetRace === 'after-push') {
+          refHead = concurrent;
+          current.head.sha = concurrent;
+          current.changed_files = 3;
+        }
         return Buffer.alloc(0);
       } };
       return require(name);
     },
   };
   return {
-    current, labels, comments, failures, faults, writes, publications,
+    current, labels, comments, failures, faults, writes, publications, otherPulls,
     head: () => refHead, blocked: () => accounts,
     push(sha) { refHead = sha; current.head.sha = sha; current.changed_files = 3; },
-    async run({ dispatch = false } = {}) {
+    async run({ dispatch = false, eventHead = original, eventLabels = initial.labels } = {}) {
       const payload = { repository: { id: 1, default_branch: 'main' },
         ...(dispatch ? { inputs: { pull_request_number: '7' } }
-          : { action: 'labeled', label: { name: decision }, sender: { login: 'Moderator' }, pull_request: initial }) };
+          : { action: 'labeled', label: { name: decision }, sender: { login: 'Moderator' },
+            pull_request: { ...initial, head: { ...initial.head, sha: eventHead }, labels: eventLabels } }) };
       const context = vm.createContext({ ...globals, context: { repo,
         eventName: dispatch ? 'workflow_dispatch' : 'pull_request_target', payload } });
       await vm.runInContext(`(async () => {\n${script}\n})()`, context);
@@ -245,6 +267,39 @@ test('a refusal queued for an older head preserves newer work and requests fresh
     comment.body.includes(original) && comment.body.includes(concurrent)));
 });
 
+test('a delayed stale refusal cannot remove fresh moderation labels on the newer head', async () => {
+  const h = lifecycle({ liveHead: concurrent });
+  await h.run();
+  h.labels.add('refused');
+  h.labels.add('reason: other');
+  const freshLabels = [...h.labels].map(name => ({ name }));
+  await h.run();
+  assert.ok(h.labels.has('refused'));
+  assert.ok(h.labels.has('reason: other'));
+  assert.equal(h.current.state, 'open');
+  assert.equal(h.head(), concurrent);
+  await h.run({ eventHead: concurrent, eventLabels: freshLabels });
+  assert.equal(h.current.state, 'closed');
+  assert.equal(h.head(), null);
+  assert.equal(h.writes[0].expected, concurrent);
+});
+
+test('an incomplete label event cannot borrow a later reason to refuse a submission', async () => {
+  const h = lifecycle();
+  await h.run({ eventLabels: [{ name: 'refused' }] });
+  assert.equal(h.current.state, 'open');
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.comments.length, 0);
+});
+
+test('a label event with an older reason cannot act on a later moderation decision', async () => {
+  const h = lifecycle();
+  await h.run({ eventLabels: [{ name: 'refused' }, { name: 'reason: invalid theme' }] });
+  assert.equal(h.current.state, 'open');
+  assert.equal(h.writes.length, 0);
+  assert.ok(h.labels.has('reason: other'));
+});
+
 test('a stale ban blocks the account while preserving newer branch work', async () => {
   const h = lifecycle({ liveHead: concurrent, decision: 'ban' });
   await h.run();
@@ -256,6 +311,22 @@ test('a stale ban blocks the account while preserving newer branch work', async 
   assert.ok(h.labels.has('cleanup pending'));
   assert.ok(!h.comments.some(comment => comment.body.includes('Submission removed from the branch.')));
 });
+
+for (const resetRace of ['before-read', 'during-push', 'after-push']) {
+  test(`a refusal that becomes stale ${resetRace} remains open for fresh review`, async () => {
+    const h = lifecycle({ resetRace });
+    await h.run();
+    assert.equal(h.head(), concurrent);
+    assert.equal(h.current.state, 'open');
+    assert.equal(h.current.locked, false);
+    assert.ok(h.labels.has('in review'));
+    assert.ok(!h.labels.has('refused'));
+    assert.ok(!h.labels.has('cleanup pending'));
+    assert.ok(!h.writes.some(write => write.next === null));
+    assert.ok(h.comments.some(comment => comment.body.includes('nzik-moderation-stale:')));
+    assert.ok(h.comments.some(comment => comment.body.includes('nzik-cleanup-cancelled')));
+  });
+}
 
 for (const dispatch of [false, true]) {
   test(`failed reset can be retried after closure via ${dispatch ? 'workflow_dispatch' : 'the original event'}`, async () => {
@@ -301,6 +372,37 @@ test('cleanup retries remain bound to the original head when new work appears af
   assert.ok(h.labels.has('cleanup pending'));
 });
 
+for (const repository of ['upstream', 'fork']) {
+  test(`cleanup does not reset a branch shared with another open ${repository} pull request`, async () => {
+    const h = lifecycle({ resetFailure: true });
+    await h.run();
+    h.faults.reset = false;
+    h.otherPulls[repository].push({ number: 99 });
+    await h.run({ dispatch: true });
+    assert.equal(h.head(), original);
+    assert.equal(h.writes.length, 0);
+    assert.ok(h.labels.has('cleanup pending'));
+  });
+}
+
+for (const dispatch of [false, true]) {
+  test(`a reset interrupted before closure resumes its persisted cleanup via ${dispatch ? 'dispatch' : 'rerun'}`, async () => {
+    const h = lifecycle();
+    h.faults.close = true;
+    await assert.rejects(h.run(), /Transient close failure/);
+    assert.equal(h.head(), ancestor);
+    assert.equal(h.current.state, 'open');
+    assert.ok(h.labels.has('cleanup pending'));
+    h.faults.close = false;
+    await h.run({ dispatch });
+    assert.equal(h.head(), null);
+    assert.equal(h.current.state, 'closed');
+    assert.equal(h.writes.filter(write => write.next === ancestor).length, 1);
+    assert.ok(!h.labels.has('cleanup pending'));
+    assert.ok(!h.comments.some(comment => comment.body.includes('nzik-moderation-stale:')));
+  });
+}
+
 test('repaired approval follows the common validation, merge confirmation and cleanup path', async () => {
   const h = lifecycle({ decision: 'accepted' });
   await h.run();
@@ -334,7 +436,7 @@ for (const race of ['after-read', 'before-push']) {
     test(`reset preserves new work pushed ${race}`, async () => {
       const h = harness({ race });
       const promise = h.context.resetSubmissionBranch(h.current, h.cleanup);
-      await assert.rejects(promise, /whether its head moved/);
+      await assert.rejects(promise, /New work was preserved/);
       assert.equal(h.head(), concurrent);
       assert.equal(h.statuses.length, 0);
       assert.equal(h.removed.length, 1);

@@ -4,7 +4,7 @@ Read [the catalog rules](rules/CODE.md), [the workflow rules](rules/WORKFLOW.md)
 
 - `catalog/themes/` holds the catalog index and published theme revisions.
 - `catalog/creators/` holds profiles, verified creators and the contribution blocklist.
-- `catalog/schemas/v1/` defines the portable format.
+- `catalog/schemas/v1/` defines the portable format. Coordinate appearance field changes with the Android exporter, importer and preview renderer.
 - `demo/` holds example packages and public demo assets. Android code is in the separate N-Zik repository.
 - `.github/workflows/` and `.github/scripts/` hold the GitHub automation.
 

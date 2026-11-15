@@ -125,6 +125,61 @@ class CatalogValidationTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "not a JSON number"):
                     catalog.load_json(path)
 
+    def test_catalog_json_requires_utf8_without_bom(self):
+        path = self.folder / "index.json"
+        text = '{"title": "Été"}'
+        path.write_bytes(text.encode("utf-8"))
+        self.assertEqual({"title": "Été"}, catalog.load_json(path))
+        for encoding in ("utf-8-sig", "utf-16", "utf-32"):
+            with self.subTest(encoding=encoding):
+                path.write_bytes(text.encode(encoding))
+                with self.assertRaisesRegex(ValueError, "UTF-8"):
+                    catalog.load_json(path)
+
+    def test_metadata_integers_require_integer_notation(self):
+        path = self.folder / "index.json"
+        for version in ("1", "1.0", "1e0", "true"):
+            with self.subTest(version=version):
+                path.write_text('{"schemaVersion": ' + version + ', "themes": []}', encoding="utf-8")
+                if version == "1":
+                    catalog.validate_json(path, catalog.load_schema("catalog"))
+                else:
+                    with self.assertRaisesRegex(ValueError, "integer notation"):
+                        catalog.validate_json(path, catalog.load_schema("catalog"))
+
+        for field, values in (
+            ("revision", (1, 1.0)),
+            ("author", (self.manifest["author"], {**self.manifest["author"], "githubId": 1.0})),
+            ("compatibility", ({"minVersionCode": 96}, {"minVersionCode": 96.0})),
+        ):
+            for value, valid in zip(values, (True, False)):
+                with self.subTest(field=field, value=value):
+                    self.assertEqual(valid, catalog.load_schema("theme").is_valid({**self.manifest, field: value}))
+
+    def test_appearance_still_accepts_equivalent_numeric_notation(self):
+        path = self.folder / "appearance.json"
+        document = json.loads(self.appearance)
+        document["schemaVersion"] = 1.0
+        self.write_json(path.name, document)
+        catalog.validate_json(path, catalog.load_schema("appearance"))
+
+    def test_duplicate_members_cannot_hide_invalid_metadata(self):
+        path = self.folder / "index.json"
+        path.write_text('{"schemaVersion": 1.0, "schemaVersion": 1, "themes": []}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "duplicate JSON member 'schemaVersion'"):
+            catalog.validate_json(path, catalog.load_schema("catalog"))
+
+    def test_demo_versions_require_integer_notation(self):
+        demo = self.folder / "demo" / "v1"
+        demo.mkdir(parents=True)
+        for name in ("index.json", "visuals.json"):
+            with self.subTest(name=name), patch.object(catalog, "ROOT", self.folder):
+                for path in demo / "index.json", demo / "visuals.json":
+                    path.write_text('{"schemaVersion": 1}', encoding="utf-8")
+                (demo / name).write_text('{"schemaVersion": 1.0}', encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "unsupported index version"):
+                    catalog.validate_demo_assets()
+
     def test_playback_gallery_scenes_need_both_variants(self):
         previews = [
             {"path": f"previews/{scene}-{variant}.webp", "role": catalog.PREVIEW_ROLES.get(scene, "other")}

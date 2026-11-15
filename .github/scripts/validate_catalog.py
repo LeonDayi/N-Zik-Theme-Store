@@ -4,7 +4,7 @@ import json
 import unicodedata
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError, validators
 from PIL import Image
 
 
@@ -14,6 +14,20 @@ CATALOG_LIMIT = 512 * 1024
 THEME_DOCUMENT_LIMIT = 128 * 1024
 PREVIEW_LIMIT = 4 * 1024 * 1024
 CATALOG_SNAPSHOT_LIMIT = 16 * 1024 * 1024
+
+
+def validate_metadata_const(validator, expected, value, schema):
+    if type(expected) is int and type(value) is not int:
+        yield ValidationError(f"{value!r} must use JSON integer notation")
+        return
+    yield from Draft202012Validator.VALIDATORS["const"](validator, expected, value, schema)
+
+
+MetadataValidator = validators.extend(
+    Draft202012Validator,
+    validators={"const": validate_metadata_const},
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", lambda _, value: type(value) is int),
+)
 
 
 def read_limited(path, limit):
@@ -28,13 +42,28 @@ def load_json(path, limit=CATALOG_LIMIT):
     def reject_nonfinite(value):
         raise ValueError(f"{path}: {value} is not a JSON number")
 
-    return json.loads(read_limited(path, limit), parse_constant=reject_nonfinite)
+    def unique_members(pairs):
+        members = {}
+        for name, value in pairs:
+            if name in members:
+                raise ValueError(f"{path}: duplicate JSON member {name!r}")
+            members[name] = value
+        return members
+
+    try:
+        content = read_limited(path, limit).decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: expected UTF-8 JSON") from error
+    if content.startswith("\ufeff"):
+        raise ValueError(f"{path}: UTF-8 BOM is unsupported")
+    return json.loads(content, parse_constant=reject_nonfinite, object_pairs_hook=unique_members)
 
 
 def load_schema(name):
     schema = load_json(CATALOG / "schemas" / "v1" / f"{name}.schema.json")
     Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema)
+    validator = Draft202012Validator if name == "appearance" else MetadataValidator
+    return validator(schema)
 
 
 def validate_json(path, validator, limit=CATALOG_LIMIT):
@@ -173,7 +202,7 @@ def validate_demo_assets():
 
     base = load_json(demo / "index.json")
     visuals = load_json(demo / "visuals.json")
-    if base["schemaVersion"] != 1 or visuals["schemaVersion"] != 1:
+    if any(type(index["schemaVersion"]) is not int or index["schemaVersion"] != 1 for index in (base, visuals)):
         raise ValueError("demo: unsupported index version")
     validate_assets(base["assets"], (covers - {"ember.jpg"}) | {"silence.mp3"})
     validate_assets(visuals["covers"], covers)

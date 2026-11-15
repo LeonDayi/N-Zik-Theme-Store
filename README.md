@@ -52,9 +52,11 @@ Use [the Theme Store issue forms](https://github.com/N-Zik-Group/N-Zik-Theme-Sto
 
 # 👀 Status
 
-[![Add to N-Zik RoadMap](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml)
+[![N-Zik Roadmap](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml)
 
-[N-Zik mobile roadmap](https://github.com/orgs/N-Zik-Group/projects/1)
+[![Roadmap Reconciliation](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/roadmap-reconcile.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/roadmap-reconcile.yml)
+
+[N-Zik roadmap](https://github.com/orgs/N-Zik-Group/projects/1)
 
 ## 🛠️ Catalog checks
 

@@ -1,0 +1,36 @@
+name: Shared N-Zik Roadmap
+
+on:
+  workflow_call:
+    inputs:
+      number:
+        type: string
+        default: ''
+      dry_run:
+        type: boolean
+        default: false
+    secrets:
+      ROADMAP_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  roadmap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the trusted Theme Store scripts
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: N-Zik-Group/N-Zik-Theme-Store
+          ref: refs/heads/main
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Route the repository event
+        env:
+          ROADMAP_TOKEN: ${{ secrets.ROADMAP_TOKEN }}
+          ROADMAP_ITEM_NUMBER: ${{ inputs.number }}
+          ROADMAP_DRY_RUN: ${{ inputs.dry_run }}
+        run: node .github/scripts/roadmap.mjs event

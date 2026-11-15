@@ -155,7 +155,7 @@ jobs:
             const isTheme = item => item.labels.some(label => themeLabels.includes(label.name));
             if (event.action === 'closed' && ((!isSubmission && !isReview && !isWithdrawal && !isTheme(pull)) || !pull.merged)) return;
             const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
-            if (current.merged && event.action !== 'closed') return;
+            if (current.merged && event.action !== 'closed' && !(isWithdrawal && labelAdded === 'accepted')) return;
             const currentLabels = new Set(current.labels.map(label => label.name));
             if (event.action === 'reopened' && current.locked
                 && ['refused', 'ban'].some(label => currentLabels.has(label))) {
@@ -307,8 +307,54 @@ jobs:
                 if (error.status !== 404) core.warning('Could not delete the processed submission branch.');
               }
             }
+            async function deleteWithdrawnTheme() {
+              const themeId = withdrawalBranch[1];
+              const prefix = `catalog/themes/${themeId}/`;
+              for (let attempt = 0; attempt < 3; attempt++) {
+                const { data: head } = await github.rest.git.getRef({ ...context.repo, ref: `heads/${ref}` });
+                const sha = head.object.sha;
+                const index = JSON.parse(await readFile(indexPath, sha));
+                if (index.themes.some(entry => entry.themeId === themeId)) {
+                  throw new Error('The theme is still indexed. Its published files were kept.');
+                }
+                const { data: base } = await github.rest.git.getCommit({ ...context.repo, commit_sha: sha });
+                const { data: root } = await github.rest.git.getTree({
+                  ...context.repo, tree_sha: base.tree.sha, recursive: 'true'
+                });
+                if (root.truncated) throw new Error('Could not enumerate every published file for the withdrawn theme.');
+                const files = root.tree.filter(entry => entry.path.startsWith(prefix) && entry.type !== 'tree');
+                if (files.length === 0) return;
+                const revisions = new Set();
+                for (const entry of files) {
+                  const relative = entry.path.slice(prefix.length);
+                  const revision = /^([1-9]\d*)\//.exec(relative)?.[1];
+                  if (!revision || entry.type !== 'blob') throw new Error('Unexpected file in the withdrawn theme directory.');
+                  revisions.add(revision);
+                }
+                for (const revision of revisions) {
+                  const manifest = JSON.parse(await readFile(`${prefix}${revision}/manifest.json`, sha));
+                  if (manifest.themeId !== themeId || manifest.revision !== Number(revision) ||
+                      manifest.author?.githubId !== pull.user.id) {
+                    throw new Error('The withdrawal author does not own every published revision.');
+                  }
+                }
+                const tree = files.map(({ path, mode, type }) => ({ path, mode, type, sha: null }));
+                const { data: updated } = await github.rest.git.createTree({ ...context.repo, base_tree: base.tree.sha, tree });
+                const { data: commit } = await github.rest.git.createCommit({
+                  ...context.repo, message: `Delete published files of withdrawn theme ${themeId}`,
+                  tree: updated.sha, parents: [sha]
+                });
+                try {
+                  await github.rest.git.updateRef({ ...context.repo, ref: `heads/${ref}`, sha: commit.sha, force: false });
+                  return;
+                } catch (error) {
+                  if (![409, 422].includes(error.status) || attempt === 2) throw error;
+                }
+              }
+            }
             async function announcePublication() {
               if (isThemeSubmission) await recordThemePublicationDate();
+              if (isWithdrawal) await deleteWithdrawnTheme();
               await status('merged');
               if (!current.locked) {
                 const marker = '<!-- nzik-submission-merged -->';
@@ -317,7 +363,7 @@ jobs:
                   await github.rest.issues.createComment({
                     ...target,
                     body: marker + '\n' + (isWithdrawal
-                      ? 'Your theme withdrawal was accepted and merged. Refresh the Theme Store to see the updated catalog.'
+                      ? 'Your theme withdrawal was accepted. The theme and its published files were removed from the catalog.'
                       : isReview
                       ? 'Your review was accepted and merged. Refresh the theme in N-Zik to see it.'
                       : isTheme(current)
@@ -355,7 +401,7 @@ jobs:
               if (currentLabels.has('accepted')) await github.rest.issues.removeLabel({ ...target, name: 'accepted' });
               core.notice('Catalog index repaired. Apply accepted again after the new commit passes validation.');
             }
-            if (pull.merged) {
+            if (current.merged) {
               await announcePublication();
               await cleanSubmissionBranch(pull.head.sha, true);
               return;
@@ -505,7 +551,9 @@ jobs:
               : ''));
             let cleaned = false;
             if (current.state === 'open' && (isSubmission || isThemeSubmission || isReview || isWithdrawal) && current.head.repo?.id === pull.head.repo.id
-                && current.head.ref === pull.head.ref && current.base.ref === ref) {
+                && current.head.ref === pull.head.ref && current.base.ref === ref
+                && current.head.repo.default_branch && current.head.ref !== current.head.repo.default_branch
+                && current.head.ref !== current.base.ref) {
               const [owner, repo] = current.head.repo.full_name.split('/');
               const branch = 'heads/' + current.head.ref;
               const headers = process.env.THEME_STORE_CLEANUP_TOKEN

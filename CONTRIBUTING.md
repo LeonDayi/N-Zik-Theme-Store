@@ -16,7 +16,7 @@ Compute hashes with `sha256sum <path>` on Linux or `Get-FileHash <path> -Algorit
 ## Update or withdraw a theme
 
 - **Update:** Keep the same ID and author. Before the stable release, update revision 1 and its manifest hash in the index. After the stable release, create the next revision directory, keep older directories intact, and update the index entry.
-- **Withdraw:** Submit the request from N-Zik, or open a PR from a `nzik/withdraw-<themeId>` branch on your own fork. Change only [the index](catalog/themes/index.json) by removing the entry for your published theme. Moderation checks the numeric GitHub ID in the current manifest before accepting the request. The revision directories preserve the publication history. Contact a moderator privately if removal involves sensitive material.
+- **Withdraw:** Submit the request from N-Zik, or open a PR from a `nzik/withdraw-<themeId>` branch on your own fork. Change only [the index](catalog/themes/index.json) by removing the entry for your published theme. Moderation checks the numeric GitHub ID in the current manifest before accepting the request. Once accepted, the bot removes all published revisions of that theme from the current branch. For sensitive material in Git history, contact a moderator privately.
 
 ## Licensing
 

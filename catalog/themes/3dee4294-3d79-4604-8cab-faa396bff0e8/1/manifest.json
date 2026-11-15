@@ -1,1 +1,162 @@
-{"schemaVersion":1,"themeId":"3dee4294-3d79-4604-8cab-faa396bff0e8","revision":1,"title":"N-Zik-QA-Creator-1115","description":"End-to-end test of theme publishing, revisions, download and apply.","author":{"githubId":63956787,"login":"NEVARLeVrai"},"tags":[],"compatibility":{"minVersionCode":null},"appearance":{"path":"appearance.json","sha256":"106e8100363d04cca76bab10925e82a34fa3b60758f7c23014b694bd094a8339"},"previews":[{"path":"previews/player-normal.webp","role":"player","sha256":"19ab503a55e53acf2498759f8786af90d8a8a2f2f6f93aaac46448c818c3a9c6"},{"path":"previews/player-glass.webp","role":"player","sha256":"6902934c187ace3facfbe59657b429fd94a359d10610b050b9ab57576b1c1ba7"},{"path":"previews/queue-normal.webp","role":"queue","sha256":"7937de97c98a0a6e39efe79ec12eef3569be99c23777b1341daba606c9237b76"},{"path":"previews/queue-glass.webp","role":"queue","sha256":"4888e87b210ecdf7c8c604ab940e8b10fd25829a102d9670895acc6525b3f0b7"},{"path":"previews/lyrics-normal.webp","role":"other","sha256":"71eaa1dc7ce184da820222937624ead0bf2e2039919719dd1e6f9ced49470bd8"},{"path":"previews/lyrics-glass.webp","role":"other","sha256":"df2a7c2b84bd76101a88a00e74ead40aebac49c28a334b7215dcf7776ab68c00"},{"path":"previews/home-normal.webp","role":"other","sha256":"785717b4d3643bdaa776243b6be96e7e31e76086821430ab8e75c3f09a32228a"},{"path":"previews/home-glass.webp","role":"other","sha256":"0662a614ffe4c0233b094e22e0486824ef53de0f7a6a54a4929b0fad7f16f519"},{"path":"previews/navigation-normal.webp","role":"navigation","sha256":"773507ebfa23360b39473b11628953e294628c811f33ba2004839e70c677c3d9"},{"path":"previews/navigation-glass.webp","role":"navigation","sha256":"be2c4217c837de6a0f8aa3623e25d16ac0e5e06d3ba2934f94f5e48dd5cbceaa"},{"path":"previews/album-normal.webp","role":"other","sha256":"b632d4029399c1db9524e0814f63a0b1d6eb29752133d5c4ca79c59fcb471254"},{"path":"previews/album-glass.webp","role":"other","sha256":"6b4c63c3d75d002d10ff7ebb979770e827d49c9dbbb3b9cf020b240539332250"},{"path":"previews/artist-normal.webp","role":"other","sha256":"ff5bb438f0389f88f5435091b77c605c26615cc99209b0377e573cad588e365c"},{"path":"previews/artist-glass.webp","role":"other","sha256":"bdb8ff75122d641bf247d2f83cea50f3300cd1952e98d166597e01e6994b34cf"},{"path":"previews/playlist-normal.webp","role":"other","sha256":"ec97ce14c66aea4d873620a820f6cd80ff27ba165aa4b7a08c09e9cac36ca8e4"},{"path":"previews/playlist-glass.webp","role":"other","sha256":"8bb075ead9c60afb671ade55287054d39d4d303735163730841d01635d3c5a92"},{"path":"previews/local-playlist-normal.webp","role":"other","sha256":"47158850ed7096d690660b35c5484a7ccdc859959ea473b720d45eaaaef081ee"},{"path":"previews/local-playlist-glass.webp","role":"other","sha256":"05693ceedf37860780d72d650c38069b073f42dbb25f5ab3ccf544f81cafc484"},{"path":"previews/search-normal.webp","role":"other","sha256":"22219795b95cd4d35f58952016bfcda59a5f149006ad60cdb2504a5736d298c5"},{"path":"previews/search-glass.webp","role":"other","sha256":"f792958980ae72ff8ec027099add5541b99282223f6bcd51fc2eed537ca138e3"},{"path":"previews/search-albums-normal.webp","role":"other","sha256":"63ed80cda32851cfc915a5e300ff81b2c29a98e064c24447d1a2913c4cb1e848"},{"path":"previews/search-albums-glass.webp","role":"other","sha256":"b66cd20d5da7b72baacc5d0bd592cc55ca4b946b363c97096e694bb64cd70caa"},{"path":"previews/search-artists-normal.webp","role":"other","sha256":"b4c165735f2b9ca2fe40d99e680b5441819b3a58ff97d92d502e5ffc13bafafe"},{"path":"previews/search-artists-glass.webp","role":"other","sha256":"18c529a5592e17815a941202dd0d9ecda47a114cd12688aff786dfd8833e4061"},{"path":"previews/player-playing-normal.webp","role":"other","sha256":"77f64ea7da202aea5860769e48b4b1c5c69d263c12f0141e501eb3b0cc794e89"},{"path":"previews/player-playing-glass.webp","role":"other","sha256":"f5bce34240baae3458f544c19ea0422fbe6725e6dc535ab8459b6c6dc64d95f7"},{"path":"previews/miniplayer-playing-normal.webp","role":"other","sha256":"303148745854e19391d8a6040b3e1990ca99d0e8df444b1bf47a39f64a57d034"},{"path":"previews/miniplayer-playing-glass.webp","role":"other","sha256":"b20876792ca2dda1cf080965aaca305da1d442f7a59112493deb2d3995a595c3"}]}
+{
+  "schemaVersion": 1,
+  "themeId": "3dee4294-3d79-4604-8cab-faa396bff0e8",
+  "revision": 1,
+  "title": "N-Zik-QA-Creator-1115",
+  "description": "End-to-end test of theme publishing, revisions, download and apply.",
+  "author": {
+    "githubId": 63956787,
+    "login": "NEVARLeVrai"
+  },
+  "tags": [],
+  "compatibility": {
+    "minVersionCode": null
+  },
+  "appearance": {
+    "path": "appearance.json",
+    "sha256": "106e8100363d04cca76bab10925e82a34fa3b60758f7c23014b694bd094a8339"
+  },
+  "previews": [
+    {
+      "path": "previews/player-normal.webp",
+      "role": "player",
+      "sha256": "19ab503a55e53acf2498759f8786af90d8a8a2f2f6f93aaac46448c818c3a9c6"
+    },
+    {
+      "path": "previews/player-glass.webp",
+      "role": "player",
+      "sha256": "6902934c187ace3facfbe59657b429fd94a359d10610b050b9ab57576b1c1ba7"
+    },
+    {
+      "path": "previews/queue-normal.webp",
+      "role": "queue",
+      "sha256": "7937de97c98a0a6e39efe79ec12eef3569be99c23777b1341daba606c9237b76"
+    },
+    {
+      "path": "previews/queue-glass.webp",
+      "role": "queue",
+      "sha256": "4888e87b210ecdf7c8c604ab940e8b10fd25829a102d9670895acc6525b3f0b7"
+    },
+    {
+      "path": "previews/lyrics-normal.webp",
+      "role": "other",
+      "sha256": "71eaa1dc7ce184da820222937624ead0bf2e2039919719dd1e6f9ced49470bd8"
+    },
+    {
+      "path": "previews/lyrics-glass.webp",
+      "role": "other",
+      "sha256": "df2a7c2b84bd76101a88a00e74ead40aebac49c28a334b7215dcf7776ab68c00"
+    },
+    {
+      "path": "previews/home-normal.webp",
+      "role": "other",
+      "sha256": "785717b4d3643bdaa776243b6be96e7e31e76086821430ab8e75c3f09a32228a"
+    },
+    {
+      "path": "previews/home-glass.webp",
+      "role": "other",
+      "sha256": "0662a614ffe4c0233b094e22e0486824ef53de0f7a6a54a4929b0fad7f16f519"
+    },
+    {
+      "path": "previews/navigation-normal.webp",
+      "role": "navigation",
+      "sha256": "773507ebfa23360b39473b11628953e294628c811f33ba2004839e70c677c3d9"
+    },
+    {
+      "path": "previews/navigation-glass.webp",
+      "role": "navigation",
+      "sha256": "be2c4217c837de6a0f8aa3623e25d16ac0e5e06d3ba2934f94f5e48dd5cbceaa"
+    },
+    {
+      "path": "previews/album-normal.webp",
+      "role": "other",
+      "sha256": "b632d4029399c1db9524e0814f63a0b1d6eb29752133d5c4ca79c59fcb471254"
+    },
+    {
+      "path": "previews/album-glass.webp",
+      "role": "other",
+      "sha256": "6b4c63c3d75d002d10ff7ebb979770e827d49c9dbbb3b9cf020b240539332250"
+    },
+    {
+      "path": "previews/artist-normal.webp",
+      "role": "other",
+      "sha256": "ff5bb438f0389f88f5435091b77c605c26615cc99209b0377e573cad588e365c"
+    },
+    {
+      "path": "previews/artist-glass.webp",
+      "role": "other",
+      "sha256": "bdb8ff75122d641bf247d2f83cea50f3300cd1952e98d166597e01e6994b34cf"
+    },
+    {
+      "path": "previews/playlist-normal.webp",
+      "role": "other",
+      "sha256": "ec97ce14c66aea4d873620a820f6cd80ff27ba165aa4b7a08c09e9cac36ca8e4"
+    },
+    {
+      "path": "previews/playlist-glass.webp",
+      "role": "other",
+      "sha256": "8bb075ead9c60afb671ade55287054d39d4d303735163730841d01635d3c5a92"
+    },
+    {
+      "path": "previews/local-playlist-normal.webp",
+      "role": "other",
+      "sha256": "47158850ed7096d690660b35c5484a7ccdc859959ea473b720d45eaaaef081ee"
+    },
+    {
+      "path": "previews/local-playlist-glass.webp",
+      "role": "other",
+      "sha256": "05693ceedf37860780d72d650c38069b073f42dbb25f5ab3ccf544f81cafc484"
+    },
+    {
+      "path": "previews/search-normal.webp",
+      "role": "other",
+      "sha256": "22219795b95cd4d35f58952016bfcda59a5f149006ad60cdb2504a5736d298c5"
+    },
+    {
+      "path": "previews/search-glass.webp",
+      "role": "other",
+      "sha256": "f792958980ae72ff8ec027099add5541b99282223f6bcd51fc2eed537ca138e3"
+    },
+    {
+      "path": "previews/search-albums-normal.webp",
+      "role": "other",
+      "sha256": "63ed80cda32851cfc915a5e300ff81b2c29a98e064c24447d1a2913c4cb1e848"
+    },
+    {
+      "path": "previews/search-albums-glass.webp",
+      "role": "other",
+      "sha256": "b66cd20d5da7b72baacc5d0bd592cc55ca4b946b363c97096e694bb64cd70caa"
+    },
+    {
+      "path": "previews/search-artists-normal.webp",
+      "role": "other",
+      "sha256": "b4c165735f2b9ca2fe40d99e680b5441819b3a58ff97d92d502e5ffc13bafafe"
+    },
+    {
+      "path": "previews/search-artists-glass.webp",
+      "role": "other",
+      "sha256": "18c529a5592e17815a941202dd0d9ecda47a114cd12688aff786dfd8833e4061"
+    },
+    {
+      "path": "previews/player-playing-normal.webp",
+      "role": "other",
+      "sha256": "77f64ea7da202aea5860769e48b4b1c5c69d263c12f0141e501eb3b0cc794e89"
+    },
+    {
+      "path": "previews/player-playing-glass.webp",
+      "role": "other",
+      "sha256": "f5bce34240baae3458f544c19ea0422fbe6725e6dc535ab8459b6c6dc64d95f7"
+    },
+    {
+      "path": "previews/miniplayer-playing-normal.webp",
+      "role": "other",
+      "sha256": "303148745854e19391d8a6040b3e1990ca99d0e8df444b1bf47a39f64a57d034"
+    },
+    {
+      "path": "previews/miniplayer-playing-glass.webp",
+      "role": "other",
+      "sha256": "b20876792ca2dda1cf080965aaca305da1d442f7a59112493deb2d3995a595c3"
+    }
+  ],
+  "publishedOn": "2026-11-15"
+}

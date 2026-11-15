@@ -116,6 +116,9 @@ function creatorSubmission(candidate, id, login) {
       if (file.status === 'removed') return oldImages.has(file.filename) && !images.has(file.filename);
       return images.has(file.filename) && (file.status === 'added' || file.status === 'modified');
     }), 'A profile submission may only change its own index entry, profile and referenced images.');
+  const creators = currentIndex.creators.map(row => identifies(row) ? entry : row);
+  if (!current) creators.push(entry);
+  return { entry, index: { ...currentIndex, creators } };
 }
 
 function trustedCandidate(root, current) {
@@ -222,12 +225,13 @@ function trustedCandidate(root, current) {
         'origin', `${commit}:refs/heads/main`], { env: pushEnv });
       return commit;
     },
-    validateRepairedIndex(index) {
+    validateRepairedIndex(index, indexPath = themeIndexPath) {
       // Resolve only the owner-checked index against trusted main. Publishing this
       // tree upstream avoids importing unrelated workflow changes into the fork.
-      assert(changes.some(file => file.filename === themeIndexPath && file.status === 'modified') &&
-        changes.every(file => file.filename === themeIndexPath || file.status === 'added'),
-      'Index repair may only add the checked theme files and replace its index.');
+      assert([themeIndexPath, creatorIndexPath].includes(indexPath) &&
+        changes.some(file => file.filename === indexPath && file.status === 'modified') &&
+        (indexPath === creatorIndexPath || changes.every(file => file.filename === indexPath || file.status === 'added')),
+      'Index repair requires an owner-checked theme or creator submission.');
       const temporaryRoot = path.resolve(require('node:os').tmpdir());
       const directory = fs.mkdtempSync(path.join(temporaryRoot, 'nzik-candidate-index-'));
       const indexEnv = { ...env, GIT_INDEX_FILE: path.join(directory, 'index') };
@@ -235,12 +239,18 @@ function trustedCandidate(root, current) {
       try {
         indexed('read-tree', base.sha);
         for (const file of changes) {
-          if (file.filename !== themeIndexPath) {
+          if (file.filename !== indexPath) {
             const existing = revision('ls-tree', base.sha, '--', file.filename);
-            assert(!existing || existing === `100644 blob ${blob(file.filename)}\t${file.filename}`,
-              'Index repair cannot replace a conflicting file added to main.');
+            const previous = revision('ls-tree', ancestor, '--', file.filename);
+            const submitted = file.status === 'removed' ? '' : `100644 blob ${blob(file.filename)}\t${file.filename}`;
+            assert(existing === previous || existing === submitted,
+              `Index repair cannot replace a conflicting file ${file.status === 'added' ? 'added to' : 'changed on'} main.`);
           }
-          const sha = file.filename === themeIndexPath
+          if (file.status === 'removed') {
+            indexed('update-index', '--force-remove', '--', file.filename);
+            continue;
+          }
+          const sha = file.filename === indexPath
             ? run('git', ['hash-object', '-w', '--stdin'], {
               input: Buffer.from(JSON.stringify(index, null, 2) + '\n'),
             }).toString('utf8').trim()

@@ -108,7 +108,7 @@ test('moderation workflow script parses', () => {
 });
 
 function lifecycle({ liveHead = original, decision = 'refused', resetFailure = false, deletionFailure = false,
-  approvalRace, resetRace } = {}) {
+  approvalRace, resetRace, creatorProfile = false } = {}) {
   const repo = { owner: 'N-Zik-Group', repo: 'N-Zik-Theme-Store' };
   const labels = new Set([decision, 'reason: other', 'in review']);
   const comments = [];
@@ -123,7 +123,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
   let accounts = [];
   const current = {
     number: 7, user: { id: 101, login: 'Creator' },
-    head: { repo: fork, ref: branch, sha: liveHead },
+    head: { repo: fork, ref: creatorProfile ? 'nzik/creator-profile-101' : branch, sha: liveHead },
     base: { sha: main, ref: 'main', repo: { owner: { login: repo.owner }, name: repo.repo } },
     state: 'open', merged: false, locked: false, draft: false, changed_files: 3,
   };
@@ -195,9 +195,16 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
     require: name => {
       if (name.endsWith('validate_submission.cjs')) return {
         themeSubmission: () => ({ index: { schemaVersion: 1, themes: [] } }),
+        creatorSubmission: (_candidate, authorId, authorLogin) => {
+          assert.equal(authorId, current.user.id);
+          assert.equal(authorLogin, current.user.login);
+          return { index: { schemaVersion: 1, creators: [] } };
+        },
         trustedCandidate: () => ({
           head: original, changes: [], mergeTree: () => null,
-          validateRepairedIndex: () => {
+          validateRepairedIndex: (index, indexPath) => {
+            assert.equal(indexPath, creatorProfile ? 'catalog/creators/index.json' : 'catalog/themes/index.json');
+            assert.ok(creatorProfile ? index.creators : index.themes);
             validatedRepair = true;
             if (approvalRace === 'head') { current.head.sha = concurrent; refHead = concurrent; }
             if (approvalRace === 'decision') labels.delete('accepted');
@@ -412,14 +419,25 @@ test('repaired approval follows the common validation, merge confirmation and cl
   assert.ok(h.current.locked);
 });
 
-for (const approvalRace of ['head', 'decision']) {
-  test(`repaired approval is cancelled if the ${approvalRace} changes during validation`, async () => {
-    const h = lifecycle({ decision: 'accepted', approvalRace });
-    await h.run();
-    assert.equal(h.publications.length, 0);
-    assert.equal(h.writes.length, 0);
-    assert.match(h.failures[0], /changed during validation/);
-  });
+test('repaired creator approval follows validation, exact-head merge confirmation and cleanup', async () => {
+  const h = lifecycle({ decision: 'accepted', creatorProfile: true });
+  await h.run();
+  assert.deepEqual(h.publications, [{ parent: original }]);
+  assert.deepEqual(h.writes, [{ expected: original, next: null }]);
+  assert.ok(h.labels.has('merged'));
+  assert.ok(h.current.locked);
+});
+
+for (const creatorProfile of [false, true]) {
+  for (const approvalRace of ['head', 'decision']) {
+    test(`repaired ${creatorProfile ? 'creator' : 'theme'} approval stops if the ${approvalRace} changes during validation`, async () => {
+      const h = lifecycle({ decision: 'accepted', approvalRace, creatorProfile });
+      await h.run();
+      assert.equal(h.publications.length, 0);
+      assert.equal(h.writes.length, 0);
+      assert.match(h.failures[0], /changed during validation/);
+    });
+  }
 }
 
 test('refusal reset uses a scoped App token and the existing merge base, without importing main workflows', async () => {

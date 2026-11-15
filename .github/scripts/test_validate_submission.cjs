@@ -113,12 +113,17 @@ test('creator profile may replace its own referenced artwork and remove the old 
   const directory = `catalog/creators/${id}/`;
   candidate.changes = [file(creatorIndex, 'modified'), file(profilePath, 'modified'),
     file(directory + 'old.webp', 'removed'), file(directory + 'new.webp')];
-  assert.doesNotThrow(() => creatorSubmission(candidate, id, login));
+  const other = { githubId: 102, profileSha256: 'a'.repeat(64) };
+  put('base', creatorIndex, { ...previous, creators: [other, ...previous.creators] });
+  assert.deepEqual(creatorSubmission(candidate, id, login).index.creators, [other, updated]);
   candidate.changes.push(file(directory + 'unreferenced.webp'));
   assert.throws(() => creatorSubmission(candidate, id, login), /referenced images/);
   candidate.changes.pop();
   put('head', creatorIndex, { ...previous, creators: [updated, { githubId: 102 }] });
   assert.throws(() => creatorSubmission(candidate, id, login), /other index entries/);
+  put('head', creatorIndex, { ...previous, creators: [updated] });
+  put('base', creatorIndex, { ...previous, creators: [{ ...updated, profileSha256: 'b'.repeat(64) }] });
+  assert.throws(() => creatorSubmission(candidate, id, login), /profile changed on main/);
 });
 
 test('trusted checkout validates merged data for the exact approved PR head', t => {
@@ -250,3 +255,100 @@ test('a repaired index validates and publishes current main without writing its 
     /cannot replace a conflicting file added to main/);
   assert.throws(() => conflicting.publishValidatedMerge('Unvalidated conflicting repair'), /must pass/);
 });
+
+for (const updating of [false, true]) {
+  test(`concurrent creator ${updating ? 'update' : 'creation'} preserves both authors and the approved head`, t => {
+    const temporaryRoot = path.resolve(os.tmpdir());
+    const root = fs.mkdtempSync(path.join(temporaryRoot, 'nzik-creator-repair-'));
+    t.after(() => {
+      assert.equal(path.dirname(root), temporaryRoot);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const git = (...args) => execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    const put = (filename, value) => {
+      fs.mkdirSync(path.dirname(path.join(root, filename)), { recursive: true });
+      fs.writeFileSync(path.join(root, filename), value);
+    };
+    const profile = (githubId, login, bio = '') => ({ schemaVersion: 1, githubId, login, displayName: login,
+      bio, avatar: { source: 'github' }, banner: { source: 'generated' } });
+    const first = profile(101, 'FirstCreator');
+    const second = profile(102, 'SecondCreator', 'Submitted profile');
+    const firstPath = 'catalog/creators/101/profile.json';
+    const secondPath = 'catalog/creators/102/profile.json';
+    const oldImage = 'catalog/creators/102/old.webp';
+    const newImage = 'catalog/creators/102/new.webp';
+    const entry = document => ({ githubId: document.githubId, profileSha256: hash(encode(document)) });
+    const writeIndex = creators => put(creatorIndex, encode({ schemaVersion: 1, creators }));
+    git('init', '-q');
+    git('config', 'user.name', 'Test');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'core.autocrlf', 'false');
+    git('remote', 'add', 'origin', '.');
+    put('.github/scripts/validate_catalog.py', [
+      'import hashlib, json', 'from pathlib import Path',
+      'index = json.loads(Path("catalog/creators/index.json").read_text())',
+      'assert {entry["githubId"] for entry in index["creators"]} == {101, 102}',
+      'for entry in index["creators"]:',
+      '    data = Path(f"catalog/creators/{entry[\"githubId\"]}/profile.json").read_bytes()',
+      '    assert hashlib.sha256(data).hexdigest() == entry["profileSha256"]',
+      '    assert json.loads(data)["githubId"] == entry["githubId"]',
+      'assert Path(".github/workflows/trusted.yml").read_text() == "current trusted workflow"',
+    ].join('\n'));
+    put('.github/workflows/trusted.yml', 'old trusted workflow');
+    const previous = profile(102, 'SecondCreator');
+    if (updating) {
+      previous.banner = { source: 'custom', asset: { path: 'old.webp', sha256: hash(Buffer.from('old artwork')) } };
+      put(secondPath, encode(previous));
+      put(oldImage, 'old artwork');
+    }
+    writeIndex(updating ? [entry(previous)] : []);
+    git('add', '.');
+    git('commit', '-qm', 'Shared catalog base');
+    const ancestor = git('rev-parse', 'HEAD');
+    if (updating) {
+      second.banner = { source: 'custom', asset: { path: 'new.webp', sha256: hash(Buffer.from('new artwork')) } };
+      fs.unlinkSync(path.join(root, oldImage));
+      put(newImage, 'new artwork');
+    }
+    put(secondPath, encode(second));
+    writeIndex([entry(second)]);
+    git('add', '.');
+    git('commit', '-qm', 'Second author submission');
+    const head = git('rev-parse', 'HEAD');
+    git('update-ref', 'refs/pull/2/head', head);
+    git('checkout', '--detach', '-q', ancestor);
+    put(firstPath, encode(first));
+    writeIndex(updating ? [entry(previous), entry(first)] : [entry(first)]);
+    put('.github/workflows/trusted.yml', 'current trusted workflow');
+    git('add', '.');
+    git('commit', '-qm', 'First author approved while second approval was queued');
+    const base = git('rev-parse', 'HEAD');
+    git('update-ref', 'refs/heads/main', base);
+    const candidate = trustedCandidate(root, { number: 2, base: { sha: base }, head: { sha: head } });
+    assert.throws(() => creatorSubmission(candidate, first.githubId, first.login), /index entry/);
+    const { index } = creatorSubmission(candidate, second.githubId, second.login);
+    assert.equal(candidate.mergeTree(), null);
+    candidate.validateRepairedIndex(index, creatorIndex);
+    const merged = candidate.publishValidatedMerge('Approve second creator against current main');
+    assert.equal(git('rev-parse', merged + '^1'), base);
+    assert.equal(git('rev-parse', merged + '^2'), head);
+    assert.equal(git('show', merged + ':' + firstPath), encode(first).toString());
+    assert.equal(git('show', merged + ':' + secondPath), encode(second).toString());
+    assert.equal(git('rev-parse', 'refs/pull/2/head'), head);
+    assert.equal(git('show', head + ':.github/workflows/trusted.yml'), 'old trusted workflow');
+    if (updating) {
+      assert.equal(git('ls-tree', merged, '--', oldImage), '');
+      assert.equal(git('show', merged + ':' + newImage), 'new artwork');
+    }
+
+    // Repair is not permission to overwrite unrelated main-side changes to profile assets.
+    git('reset', '--hard', base);
+    put(updating ? oldImage : secondPath, 'independent main work');
+    git('add', '.');
+    git('commit', '-qm', 'Concurrent change outside the shared index');
+    const changedBase = git('rev-parse', 'HEAD');
+    const conflicting = trustedCandidate(root, { number: 2, base: { sha: changedBase }, head: { sha: head } });
+    assert.throws(() => conflicting.validateRepairedIndex(index, creatorIndex), /cannot replace a conflicting file/);
+    assert.throws(() => conflicting.publishValidatedMerge('Unsafe repair'), /must pass/);
+  });
+}

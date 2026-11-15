@@ -655,13 +655,20 @@ jobs:
               const candidate = trustedCandidate(trustedRoot, current);
               const files = candidate.changes;
               let repairedIndex;
+              let repairedIndexPath = indexPath;
               if (isThemeSubmission) {
                 const themeId = current.head.ref.slice('nzik/theme-'.length);
                 const { index } = themeSubmission(candidate, pull.user.id, pull.user.login, themeId);
                 await validateReservedTags(current, files);
                 if (!candidate.mergeTree()) repairedIndex = index;
               }
-              if (isSubmission) creatorSubmission(candidate, pull.user.id, pull.user.login);
+              if (isSubmission) {
+                const { index } = creatorSubmission(candidate, pull.user.id, pull.user.login);
+                if (!candidate.mergeTree()) {
+                  repairedIndex = index;
+                  repairedIndexPath = 'catalog/creators/index.json';
+                }
+              }
               if (isWithdrawal) {
                 const index = await withdrawalIndex(current, files);
                 if (!candidate.mergeTree()) repairedIndex = index;
@@ -698,7 +705,7 @@ jobs:
                   return;
                 }
               }
-              if (repairedIndex) candidate.validateRepairedIndex(repairedIndex);
+              if (repairedIndex) candidate.validateRepairedIndex(repairedIndex, repairedIndexPath);
               else candidate.validateMerged();
               const { data: live } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
               const liveLabels = new Set(live.labels.map(label => label.name));

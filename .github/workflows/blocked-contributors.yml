@@ -34,6 +34,7 @@ jobs:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           THEME_STORE_MERGE_TOKEN: ${{ github.token }}
+          THEME_STORE_GITHUB_APP_PRIVATE_KEY: ${{ secrets.THEME_STORE_GITHUB_APP_PRIVATE_KEY }}
           THEME_STORE_CLEANUP_TOKEN: ${{ secrets.THEME_STORE_CLEANUP_TOKEN }}
         with:
           script: |
@@ -280,8 +281,41 @@ jobs:
                 }
               }
             }
+            async function forkCleanupToken(fork) {
+              const privateKey = process.env.THEME_STORE_GITHUB_APP_PRIVATE_KEY;
+              if (!privateKey) return process.env.THEME_STORE_CLEANUP_TOKEN;
+              const { sign } = require('node:crypto');
+              const encode = data => Buffer.from(JSON.stringify(data)).toString('base64url');
+              const now = Math.floor(Date.now() / 1000);
+              const claims = encode({ alg: 'RS256', typ: 'JWT' }) + '.' +
+                encode({ iss: 'Iv23lieArky4yjlQ0jiT', iat: now - 60, exp: now + 300 });
+              const jwt = claims + '.' + sign('RSA-SHA256', Buffer.from(claims), privateKey).toString('base64url');
+              core.setSecret(jwt);
+              async function appRequest(path, body) {
+                const response = await fetch('https://api.github.com' + path, {
+                  method: body ? 'POST' : 'GET',
+                  redirect: 'error',
+                  headers: {
+                    authorization: 'Bearer ' + jwt,
+                    accept: 'application/vnd.github+json',
+                    'content-type': 'application/json',
+                  },
+                  body: body ? JSON.stringify(body) : undefined,
+                });
+                if (response.status === 404) return null;
+                if (!response.ok) throw new Error(`GitHub App authentication failed (HTTP ${response.status}).`);
+                return response.json();
+              }
+              const installation = await appRequest(`/repos/${fork.owner.login}/${fork.name}/installation`);
+              if (!installation || installation.account?.id !== fork.owner.id || installation.suspended_at ||
+                  installation.permissions?.contents !== 'write' || !Number.isSafeInteger(installation.id)) return null;
+              const token = await appRequest(`/app/installations/${installation.id}/access_tokens`, {
+                repository_ids: [fork.id],
+                permissions: { contents: 'write' },
+              });
+              return token?.token;
+            }
             async function cleanSubmissionBranch(expectedSha, merged) {
-              const token = process.env.THEME_STORE_CLEANUP_TOKEN;
               if (!(isSubmission || isThemeSubmission || isReview || isWithdrawal)) return;
               try {
                 const { data: resolved } = await github.rest.pulls.get({
@@ -295,22 +329,53 @@ jobs:
                     branch === resolved.base.ref || resolved.head.sha !== expectedSha) return;
 
                 const repository = { owner: fork.owner.login, repo: fork.name };
-                const headers = token ? { authorization: 'Bearer ' + token } : {};
                 const query = { state: 'open', head: `${fork.owner.login}:${branch}`, per_page: 100 };
                 const [upstreamOpen, forkOpen] = await Promise.all([
                   github.paginate(github.rest.pulls.list, { ...context.repo, ...query }),
-                  github.paginate(github.rest.pulls.list, { ...repository, ...query, headers })
+                  github.paginate(github.rest.pulls.list, { ...repository, ...query })
                 ]);
                 if (upstreamOpen.length || forkOpen.length) return;
 
-                const { data: branchInfo } = await github.rest.repos.getBranch({ ...repository, branch, headers });
+                const { data: branchInfo } = await github.rest.repos.getBranch({ ...repository, branch });
                 if (branchInfo.protected || branchInfo.commit.sha !== expectedSha) return;
-                const ref = 'heads/' + branch;
-                const { data: head } = await github.rest.git.getRef({ ...repository, ref, headers });
-                if (head.object.sha !== expectedSha) return;
-                await github.rest.git.deleteRef({ ...repository, ref, headers });
+                if (!/^[0-9a-f]{40}$/.test(expectedSha) ||
+                    !/^[a-z0-9-]+$/i.test(repository.owner) ||
+                    !/^[a-z0-9_.-]+$/i.test(repository.repo)) return;
+                const token = await forkCleanupToken(fork);
+                if (!token) {
+                  core.warning('Fork branch cleanup needs N-Zik Sign In installed on the fork with Contents: write.');
+                  return;
+                }
+                core.setSecret(token);
+                const fs = require('node:fs');
+                const path = require('node:path');
+                const { tmpdir } = require('node:os');
+                const { execFileSync } = require('node:child_process');
+                const directory = fs.mkdtempSync(path.join(tmpdir(), 'nzik-fork-cleanup-'));
+                const authEnv = {
+                  PATH: process.env.PATH,
+                  GIT_CONFIG_COUNT: '1',
+                  GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+                  GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ' + Buffer.from('x-access-token:' + token).toString('base64'),
+                  GIT_TERMINAL_PROMPT: '0',
+                };
+                const ref = 'refs/heads/' + branch;
+                const url = `https://github.com/${repository.owner}/${repository.repo}.git`;
+                try {
+                  execFileSync('git', ['init', '--quiet', '--bare', directory], { env: authEnv });
+                  // Delete only the checked SHA, even if a contributor pushes again during cleanup.
+                  execFileSync('git', ['push', `--force-with-lease=${ref}:${expectedSha}`, url, ':' + ref],
+                    { cwd: directory, env: authEnv, stdio: 'pipe' });
+                  core.info('Deleted the processed submission branch from the fork.');
+                } finally {
+                  fs.rmSync(directory, { recursive: true, force: true });
+                }
               } catch (error) {
-                if (error.status !== 404) core.warning('Could not delete the processed submission branch.');
+                if (error.status === 403 || error.status === 404) {
+                  core.warning('The cleanup credential could not access the fork branch, or the branch was already removed.');
+                } else {
+                  core.warning('Could not delete the processed submission branch. Check fork write access and whether its head moved.');
+                }
               }
             }
             async function deleteWithdrawnTheme() {

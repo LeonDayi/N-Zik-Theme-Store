@@ -123,6 +123,7 @@ function trustedCandidate(root, current) {
   const env = { ...process.env };
   delete env.THEME_STORE_CLEANUP_TOKEN;
   delete env.THEME_STORE_MERGE_TOKEN;
+  delete env.THEME_STORE_GITHUB_APP_PRIVATE_KEY;
   const run = (command, args, options = {}) => execFileSync(command, args, {
     cwd: root, env, maxBuffer: 4 * 1024 * 1024 + 1, ...options,
   });

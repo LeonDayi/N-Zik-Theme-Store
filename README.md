@@ -50,6 +50,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to submit, update or withdraw a theme. Se
 
 Use [the Theme Store issue forms](https://github.com/N-Zik-Group/N-Zik-Theme-Store/issues/new/choose) for catalog bugs, store features and moderation reports. See the [issue guide](https://github.com/N-Zik-Group/N-Zik-Theme-Store/issues/15) for where to report Android app issues.
 
+### Set up your creator account in N-Zik
+
+In versions with creator setup, open **Theme Store → Creator → Connect GitHub**. N-Zik signs you in, reuses your existing Theme Store fork or creates it if needed, then opens the N-Zik Sign In installation in the same panel.
+
+On GitHub, choose your own account and select only your **N-Zik-Theme-Store** fork. This gives the moderation bot permission to clean up merged submission branches. N-Zik saves your sign-in after confirming N-Zik Sign In on your personal account. If it is already installed, you can reconnect without installing it again. The same GitHub controls are available in N-Zik's Services settings. After setup, open **App installation** in Creator to manage or revoke access in your personal GitHub settings. GitHub must allow **N-Zik Sign In** to be installed on any account so creators can grant access to their own forks.
+
 # 👀 Status
 
 [![N-Zik Roadmap](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/mobile-roadmap.yml)

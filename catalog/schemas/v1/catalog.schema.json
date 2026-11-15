@@ -15,7 +15,7 @@
         "required": ["themeId", "revision", "manifestSha256"],
         "properties": {
           "themeId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])"},
-          "revision": {"type": "integer", "minimum": 1},
+          "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
           "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])"}
         }
       }

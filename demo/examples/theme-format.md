@@ -17,6 +17,16 @@ catalog/themes/<themeId>/<revision>/
 
 The catalog derives a manifest URL from `themeId` and `revision`. Each entry pins the SHA-256 of the manifest. The manifest pins the SHA-256 of the raw appearance and preview bytes. Use the lowercase hexadecimal SHA-256 of the committed bytes, including the final newline when present. Resolve media paths relative to the manifest directory.
 
+Android accepts up to 128 KiB for an appearance document, 512 KiB for each index,
+manifest, creator profile or review document, and 4 MiB for each preview or custom
+creator image. Files must not be empty. The index and current manifests must also
+fit together in the 16 MiB Android catalog snapshot, including JSON string escaping.
+The catalog validator enforces these limits before publication.
+
+Text length limits count Unicode code points, including one for a supplementary
+character such as an emoji. GitHub IDs fit a positive signed 64-bit integer;
+revision and Android version codes fit a positive signed 32-bit integer.
+
 ## Version 1
 
 - `schemaVersion` selects the format. `themeId` is a permanent lowercase UUID independent of the theme title. Before the stable release, update the existing revision 1 directory and refresh the manifest hash in the index. Once the catalog is stable, each published change increments `revision` and uses a new directory. The catalog lists one current revision per theme. To withdraw a theme, remove its index entry.
@@ -30,7 +40,7 @@ The catalog derives a manifest URL from `themeId` and `revision`. Each entry pin
 
 The first six catalog entries follow the order of the original preset chooser in [N-Zik at `1013c849fb`](https://github.com/N-Zik-Group/N-Zik/tree/1013c849fb66e3a8c9fb200eede3d5600a16d234). The built-in presets were [introduced by aneesh1122](https://github.com/N-Zik-Group/N-Zik/commit/ea40544986) and maintained in N-Zik. Their catalog names are descriptive labels added for this conversion. All themes and their previews are released under the repository's [GPL-3.0-only license](../../LICENSE).
 
-Each theme uses N-Zik's Appearance reset values for fields its original preset inherited. For example, all six use the Modern queue style, the third uses a 90 cover size, and the fourth uses System palette mode. The conversion includes the colors and player/queue categories. Minimum release compatibility is pending for the six current listings. The README gallery shows captures from a debug build.
+Each theme uses N-Zik's Appearance reset values for fields its original preset inherited. For example, all six use the Modern queue style, the third uses a 90 cover size, and the fourth uses System palette mode. The conversion includes the colors and player/queue categories. The six built-in listings require Android version code 96 or later. The README gallery shows captures from a debug build.
 
 Appearance field mappings are defined by the source settings. `coverSize` maps to the portrait `thumbnailSizeDp` preference, which the UI exposes as a 0–100 control. `transparentPlayerBar`, `noBlur` and `showExpandPlayerButton` map to `transparentbar`, `noblur` and `expandedplayertoggle`, respectively. The app still resolves how these settings interact with its layout and rendering rules.
 

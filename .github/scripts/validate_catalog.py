@@ -1,17 +1,31 @@
 import hashlib
+import io
 import json
 import unicodedata
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = ROOT / "catalog"
+CATALOG_LIMIT = 512 * 1024
+THEME_DOCUMENT_LIMIT = 128 * 1024
+PREVIEW_LIMIT = 4 * 1024 * 1024
+CATALOG_SNAPSHOT_LIMIT = 16 * 1024 * 1024
 
 
-def load_json(path):
-    return json.loads(path.read_bytes())
+def read_limited(path, limit):
+    with path.open("rb") as source:
+        content = source.read(limit + 1)
+    if not 0 < len(content) <= limit:
+        raise ValueError(f"{path}: file is empty or exceeds {limit} bytes")
+    return content
+
+
+def load_json(path, limit=CATALOG_LIMIT):
+    return json.loads(read_limited(path, limit))
 
 
 def load_schema(name):
@@ -20,8 +34,8 @@ def load_schema(name):
     return Draft202012Validator(schema)
 
 
-def validate_json(path, validator):
-    document = load_json(path)
+def validate_json(path, validator, limit=CATALOG_LIMIT):
+    document = load_json(path, limit)
     errors = list(validator.iter_errors(document))
     if errors:
         error = errors[0]
@@ -29,17 +43,31 @@ def validate_json(path, validator):
     return document
 
 
-def check_hash(path, expected):
-    if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+def check_hash(path, expected, limit=CATALOG_LIMIT):
+    content = read_limited(path, limit)
+    if hashlib.sha256(content).hexdigest() != expected:
         raise ValueError(f"{path}: SHA-256 mismatch")
+    return content
+
+
+def validate_image(path, expected):
+    content = check_hash(path, expected, PREVIEW_LIMIT)
+    expected_format = {".jpg": "JPEG", ".png": "PNG", ".webp": "WEBP", ".gif": "GIF"}[path.suffix]
+    try:
+        with Image.open(io.BytesIO(content), formats=[expected_format]) as image:
+            image.verify()
+        with Image.open(io.BytesIO(content), formats=[expected_format]) as image:
+            image.load()
+    except (OSError, SyntaxError, Image.DecompressionBombError) as error:
+        raise ValueError(f"{path}: invalid {expected_format} image") from error
 
 
 def validate_theme(folder, manifest_validator, appearance_validator):
     manifest = validate_json(folder / "manifest.json", manifest_validator)
     appearance = manifest["appearance"]
     appearance_path = folder / appearance["path"]
-    check_hash(appearance_path, appearance["sha256"])
-    validate_json(appearance_path, appearance_validator)
+    check_hash(appearance_path, appearance["sha256"], THEME_DOCUMENT_LIMIT)
+    validate_json(appearance_path, appearance_validator, THEME_DOCUMENT_LIMIT)
 
     preview_paths = set()
     for preview in manifest["previews"]:
@@ -47,7 +75,7 @@ def validate_theme(folder, manifest_validator, appearance_validator):
         if path in preview_paths:
             raise ValueError(f"{folder}: duplicate preview {path}")
         preview_paths.add(path)
-        check_hash(folder / path, preview["sha256"])
+        validate_image(folder / path, preview["sha256"])
     return manifest
 
 
@@ -100,8 +128,23 @@ def validate_creator(folder, validator, expected_id=None):
         media = profile[field]
         if media["source"] == "custom":
             asset = media["asset"]
-            check_hash(folder / asset["path"], asset["sha256"])
+            validate_image(folder / asset["path"], asset["sha256"])
     return profile
+
+
+def validate_snapshot(index_path, manifest_paths):
+    index = read_limited(index_path, CATALOG_LIMIT)
+    remaining = CATALOG_SNAPSHOT_LIMIT - len(index)
+    manifests = []
+    for path in manifest_paths:
+        content = read_limited(path, min(CATALOG_LIMIT, remaining))
+        remaining -= len(content)
+        manifests.append(content.decode("utf-8"))
+    snapshot = {"index": index.decode("utf-8"), "manifests": manifests,
+                "syncedAt": 9223372036854775807}
+    encoded = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > CATALOG_SNAPSHOT_LIMIT:
+        raise ValueError("catalog: encoded Android snapshot exceeds 16 MiB")
 
 
 def validate_demo_assets():
@@ -160,6 +203,7 @@ def main():
     validate_reviews(example, reviews_validator)
 
     theme_ids = set()
+    manifest_paths = []
     for entry in catalog["themes"]:
         theme_id = entry["themeId"]
         revision = entry["revision"]
@@ -167,6 +211,7 @@ def main():
             raise ValueError(f"catalog: duplicate theme ID {theme_id}")
         theme_ids.add(theme_id)
         folder = CATALOG / "themes" / theme_id / str(revision)
+        manifest_paths.append(folder / "manifest.json")
         check_hash(folder / "manifest.json", entry["manifestSha256"])
         manifest = validate_theme(folder, manifest_validator, appearance_validator)
         validate_gallery(manifest)
@@ -177,6 +222,8 @@ def main():
             raise ValueError(f"{folder}: manifest author and creator GitHub logins differ")
         if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
             raise ValueError(f"{folder}: manifest ID or revision differs from the catalog")
+
+    validate_snapshot(CATALOG / "themes" / "index.json", manifest_paths)
 
     for reviews in (CATALOG / "themes").glob("*/*/reviews.json"):
         if not (reviews.parent / "manifest.json").is_file():

@@ -1162,7 +1162,7 @@
                   "type": "array",
                   "items": {
                     "type": "string",
-                    "pattern": "^[a-z][a-z0-9-]{0,79}$"
+                    "pattern": "^[a-z][a-z0-9-]{0,79}(?![\\s\\S])"
                   },
                   "uniqueItems": true,
                   "maxItems": 512
@@ -1817,7 +1817,7 @@
             },
             "searchGridLayouts": {
               "type": "string",
-              "pattern": "^[01]{7}$"
+              "pattern": "^[01]{7}(?![\\s\\S])"
             },
             "showOnDeviceFolders": {
               "type": "boolean"

@@ -252,17 +252,18 @@ def main():
     if len(blocked_ids) != len(set(blocked_ids)):
         raise ValueError("creators: duplicate blocked GitHub ID")
     validate_creator(ROOT / "demo" / "examples" / "creator-v1", creator_validator)
-    creators = {}
+    creator_ids = set()
     creator_root = CATALOG / "creators"
     index = validate_json(creator_root / "index.json", load_schema("creators-index"))
     for entry in index["creators"]:
         github_id = entry["githubId"]
-        if github_id in creators:
+        if github_id in creator_ids:
             raise ValueError(f"creators: duplicate GitHub ID {github_id}")
         folder = creator_root / str(github_id)
         check_hash(folder / "profile.json", entry["profileSha256"])
-        creators[github_id] = validate_creator(folder, creator_validator, folder.name)
-    if {p.name for p in creator_root.iterdir() if p.is_dir()} != {str(i) for i in creators}:
+        validate_creator(folder, creator_validator, folder.name)
+        creator_ids.add(github_id)
+    if {p.name for p in creator_root.iterdir() if p.is_dir()} != {str(i) for i in creator_ids}:
         raise ValueError("creators: index and profile directories differ")
     example = ROOT / "demo" / "examples" / "theme-v1"
     validate_theme(example, manifest_validator, appearance_validator)
@@ -282,10 +283,6 @@ def main():
         manifest = validate_theme(folder, manifest_validator, appearance_validator)
         validate_gallery(manifest)
         validate_reserved_tags(manifest, verified_ids)
-        author = manifest["author"]
-        creator = creators.get(author["githubId"])
-        if creator and creator["login"].casefold() != author["login"].casefold():
-            raise ValueError(f"{folder}: manifest author and creator GitHub logins differ")
         if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
             raise ValueError(f"{folder}: manifest ID or revision differs from the catalog")
 
@@ -296,7 +293,7 @@ def main():
             raise ValueError(f"{reviews}: missing revision manifest")
         validate_reviews(reviews.parent, reviews_validator)
 
-    print(f"Validated the v1 schemas, examples, {len(theme_ids)} published themes and {len(creators)} creators.")
+    print(f"Validated the v1 schemas, examples, {len(theme_ids)} published themes and {len(creator_ids)} creators.")
 
 
 if __name__ == "__main__":

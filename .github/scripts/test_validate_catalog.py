@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,6 +100,47 @@ class CatalogValidationTest(unittest.TestCase):
         validator = Draft202012Validator(login)
         self.assertTrue(validator.is_valid("Review-User"))
         self.assertFalse(validator.is_valid("Review-User\n"))
+
+    def test_catalog_accepts_historical_theme_author_login_after_creator_rename(self):
+        author_id = self.manifest["author"]["githubId"]
+        theme_id = self.manifest["themeId"]
+        catalog_root = self.folder / "catalog"
+        shutil.copytree(catalog.CATALOG / "schemas", catalog_root / "schemas")
+        creator_root = catalog_root / "creators"
+        creator_folder = creator_root / str(author_id)
+        creator_folder.mkdir(parents=True)
+        profile = catalog.load_json(catalog.ROOT / "demo/examples/creator-v1/profile.json")
+        profile.update(githubId=author_id, login="Renamed-Creator")
+        profile_path = self.write_json(creator_folder / "profile.json", profile)
+        self.write_json(creator_root / "index.json", {"schemaVersion": 1, "creators": [{
+            "githubId": author_id,
+            "profileSha256": hashlib.sha256(profile_path.read_bytes()).hexdigest(),
+        }]})
+        self.write_json(creator_root / "verified.json", {"schemaVersion": 1, "githubIds": []})
+        self.write_json(creator_root / "blocked.json", {"schemaVersion": 1, "accounts": []})
+        theme_root = catalog_root / "themes"
+        theme_folder = theme_root / theme_id / "1"
+        (theme_folder / "previews").mkdir(parents=True)
+        image = self.image_bytes("WEBP")
+        image_hash = hashlib.sha256(image).hexdigest()
+        self.manifest["previews"] = []
+        for scene in catalog.BASE_SCENES:
+            for variant in ("normal", "glass"):
+                path = f"previews/{scene}-{variant}.webp"
+                (theme_folder / path).write_bytes(image)
+                self.manifest["previews"].append({
+                    "path": path, "role": catalog.PREVIEW_ROLES.get(scene, "other"), "sha256": image_hash,
+                })
+        (theme_folder / "appearance.json").write_bytes(self.appearance)
+        self.manifest["appearance"]["sha256"] = hashlib.sha256(self.appearance).hexdigest()
+        manifest_path = self.write_json(theme_folder / "manifest.json", self.manifest)
+        self.write_json(theme_root / "index.json", {"schemaVersion": 1, "themes": [{
+            "themeId": theme_id,
+            "revision": 1,
+            "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        }]})
+        with patch.object(catalog, "CATALOG", catalog_root):
+            catalog.main()
 
     def test_navigation_layout_values_reject_trailing_line_break(self):
         schema = catalog.load_schema("appearance").schema

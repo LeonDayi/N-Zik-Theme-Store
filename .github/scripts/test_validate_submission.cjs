@@ -35,11 +35,11 @@ function makeCandidate() {
   return { candidate, put };
 }
 
-function themeFixture({ published = false, submittedOwner = id, publishedOwner = id } = {}) {
+function themeFixture({ published = false, submittedOwner = id, publishedOwner = id, publishedLogin = login } = {}) {
   const { candidate, put } = makeCandidate();
   const revision = published ? 2 : 1;
   const manifestFile = `${themePath}${revision}/manifest.json`;
-  const oldManifest = { themeId, revision: 1, author: { githubId: publishedOwner, login } };
+  const oldManifest = { themeId, revision: 1, author: { githubId: publishedOwner, login: publishedLogin } };
   const previous = published ? [{
     themeId, revision: 1, manifestSha256: put('base', `${themePath}1/manifest.json`, oldManifest),
   }] : [];
@@ -63,6 +63,12 @@ test('a creator can publish and update their own theme', () => {
     const { candidate, entry } = themeFixture({ published });
     assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
   }
+});
+
+test('an updated theme uses the authenticated current login after a GitHub rename', () => {
+  const { candidate, entry } = themeFixture({ published: true, publishedLogin: 'Previous-Creator' });
+  assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
+  assert.throws(() => themeSubmission(candidate, id, 'Previous-Creator', themeId), /author/);
 });
 
 test('theme approval rejects unrelated files and changes to existing revisions', () => {
@@ -144,4 +150,18 @@ test('trusted checkout validates merged data for the exact approved PR head', t 
   assert.deepEqual(candidate.changes, [file('catalog/submission.json')]);
   assert.doesNotThrow(() => candidate.validateMerged());
   assert.equal(run('rev-parse', 'HEAD'), base);
+
+  // Simulate a prior approval advancing main while this approval was queued.
+  run('reset', '--hard', base);
+  fs.writeFileSync(path.join(root, 'catalog', 'earlier-publication.json'), '{}');
+  const validator = path.join(root, '.github', 'scripts', 'validate_catalog.py');
+  fs.appendFileSync(validator, 'assert Path("catalog/earlier-publication.json").is_file()\n');
+  run('add', '.');
+  run('commit', '-qm', 'Earlier publication');
+  const latestBase = run('rev-parse', 'HEAD');
+  assert.throws(() => trustedCandidate(root, pr), /Main changed/);
+  const queued = trustedCandidate(root, { ...pr, base: { sha: latestBase } });
+  assert.deepEqual(queued.changes, [file('catalog/submission.json')]);
+  assert.doesNotThrow(() => queued.validateMerged());
+  assert.equal(run('rev-parse', 'HEAD'), latestBase);
 });

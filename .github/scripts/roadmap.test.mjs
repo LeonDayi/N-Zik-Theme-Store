@@ -160,6 +160,18 @@ test('stale close and reopen deliveries leave the current lifecycle alone', asyn
   assert.deepEqual(writes, [['assign', 1], ['status', 'card-node-1', 'In Progress']]);
 });
 
+test('replayed lifecycle events preserve a more recent project status', async () => {
+  const closed = item(1, { state: 'CLOSED' });
+  const reopened = item(2);
+  reopened.reopen.nodes = [{ id: 'reopening', createdAt: reopenedAt }];
+  const cards = [card(closed, 'progress'), card(reopened, 'backlog')];
+  for (const value of cards) value.status.updatedAt = '2026-11-15T19:30:00Z';
+  const { api, writes } = fixture([closed, reopened], cards);
+  await handleEvent(api, event(closed, 'closed'), silent);
+  await handleEvent(api, event(reopened, 'reopened'), silent);
+  assert.deepEqual(writes, [['assign', 2]]);
+});
+
 test('an open delivery that runs after a close creates a card using live state after adding', async () => {
   const subject = item(1, { state: 'CLOSED' });
   const { api, writes } = fixture([subject]);

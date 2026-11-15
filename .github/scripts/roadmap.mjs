@@ -218,6 +218,7 @@ const repoOf = item => item?.repository?.nameWithOwner;
 const reopenEvent = item => item.reopen?.nodes[0];
 const reopenId = item => reopenEvent(item)?.id ?? null;
 const option = value => value.status?.optionId ?? null;
+const statusChangedAfter = (value, time) => Date.parse(value.status?.updatedAt) > Date.parse(time);
 const isClosed = item => ['CLOSED', 'MERGED'].includes(item.state);
 const tracked = item => repositories.has(repoOf(item)) && ['Issue', 'PullRequest'].includes(item.__typename);
 const label = item => `${repoOf(item)}#${item.number}`;
@@ -283,11 +284,13 @@ async function routeItem(api, project, item, action, subject, dryRun, log) {
   let existing = await api.cardFor(project.id, item.id);
   if (action === 'closed') {
     if (!isCurrent(existing, item, project) || !eventMatches(existing.content, action, subject)) return;
+    if (statusChangedAfter(existing, subject.closed_at)) return;
     await setStatus(api, project, existing, 'Done', dryRun, log);
     return;
   }
   if (action === 'reopened') {
     if (existing && (!isCurrent(existing, item, project) || !eventMatches(existing.content, action, subject))) return;
+    if (existing && statusChangedAfter(existing, subject.updated_at)) return;
     if (!existing) {
       const live = dryRun ? item : await api.item(repoOf(item), item.number);
       if (live?.id !== item.id || repoOf(live) !== repoOf(item) || !eventMatches(live, action, subject)) return;
@@ -391,8 +394,7 @@ export async function reconcile(api, { repo, previous, dryRun }, log = console.l
     }
     if (sameStatus && sameLifecycle) {
       const lifecycleTime = closed ? item.closedAt : reopenEvent(item)?.createdAt;
-      const statusChangedLater = Date.parse(live.status?.updatedAt) > Date.parse(lifecycleTime);
-      if ((closed || reopened) && !statusChangedLater) {
+      if ((closed || reopened) && !statusChangedAfter(live, lifecycleTime)) {
         await setStatus(api, project, live, closed ? 'Done' : 'In Progress', dryRun, log);
       } else if (closeIssue) {
         log(`${dryRun ? 'Would close' : 'Closing'} ${label(item)} as completed`);

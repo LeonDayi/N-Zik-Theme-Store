@@ -276,7 +276,7 @@ jobs:
             }
             async function cleanSubmissionBranch(expectedSha, merged) {
               const token = process.env.THEME_STORE_CLEANUP_TOKEN;
-              if (!token || !(isSubmission || isThemeSubmission || isReview || isWithdrawal)) return;
+              if (!(isSubmission || isThemeSubmission || isReview || isWithdrawal)) return;
               try {
                 const { data: resolved } = await github.rest.pulls.get({
                   ...context.repo, pull_number: pull.number
@@ -289,7 +289,7 @@ jobs:
                     branch === resolved.base.ref || resolved.head.sha !== expectedSha) return;
 
                 const repository = { owner: fork.owner.login, repo: fork.name };
-                const headers = { authorization: 'Bearer ' + token };
+                const headers = token ? { authorization: 'Bearer ' + token } : {};
                 const query = { state: 'open', head: `${fork.owner.login}:${branch}`, per_page: 100 };
                 const [upstreamOpen, forkOpen] = await Promise.all([
                   github.paginate(github.rest.pulls.list, { ...context.repo, ...query }),

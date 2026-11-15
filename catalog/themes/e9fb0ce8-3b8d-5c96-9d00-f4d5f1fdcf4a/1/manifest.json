@@ -37,49 +37,49 @@
       "path": "previews/queue-normal.webp",
       "role": "queue",
       "caption": "Queue · Normal",
-      "sha256": "33f1e94df8f41e615ceacfe06b681cdd5b23e89deae3ee5567907d2acab730f8"
+      "sha256": "f1ec057846af4e3215ca9714bb543a7cf1c70fd9b46605713d80d1988f2d4d09"
     },
     {
       "path": "previews/queue-glass.webp",
       "role": "queue",
       "caption": "Queue · Glass",
-      "sha256": "827d72ab78bdc9f43701a46694d304e84a2198db7d14e499ed057d192c82d04b"
+      "sha256": "7f3146ec175621a621809d37db75c736f9a5213306720cc850f0fa00e7cc5384"
     },
     {
       "path": "previews/home-normal.webp",
       "role": "other",
       "caption": "Home · Normal",
-      "sha256": "b452878661ce26dcad27c2cf83b4f9de80b2d51b15556145945d8e5d3a907ab6"
+      "sha256": "051633aa789b6a5269bad0a028601084e5bfd78a76694121b7588cec0e3f2d40"
     },
     {
       "path": "previews/home-glass.webp",
       "role": "other",
       "caption": "Home · Glass",
-      "sha256": "44a58c4eecbbf7714ed303be485f29339162b4c49a5df89938b9d2c5ce2044fd"
+      "sha256": "e4c4182ce26ab1b3b6d97bd0560eea3e881581e55f666c2b7c91d235ab2ff410"
     },
     {
       "path": "previews/navigation-normal.webp",
       "role": "navigation",
       "caption": "Library and navigation · Normal",
-      "sha256": "b2005dd518a410c30073583deee486628804450202a1d42ba927a37a8f081649"
+      "sha256": "d06bb25b51a5a095f3ebb6250c69b87926db79adc7403a17a990fdeaae187228"
     },
     {
       "path": "previews/navigation-glass.webp",
       "role": "navigation",
       "caption": "Library and navigation · Glass",
-      "sha256": "6a4fe1532176d8d320d15864a2ccda1eee10b138288844d9bb7e221a19911ae8"
+      "sha256": "b11b965475fdb04ed2e54a33eedde61ede4946a397fab703c7fa15ff5368e169"
     },
     {
       "path": "previews/search-normal.webp",
       "role": "other",
       "caption": "Search · Normal",
-      "sha256": "32235cedd3d3e38e9753955c053d9db1e6b58e26a1e93005ff98074bc18920a9"
+      "sha256": "aed158bab32904627990d7f5b47fe118b2a132b7c3795c42e76f4df44b6d3184"
     },
     {
       "path": "previews/search-glass.webp",
       "role": "other",
       "caption": "Search · Glass",
-      "sha256": "491f3ef4cfc4dbe3765d5508b8bcec7d1f55e805421959cba7f978cf9ea5a7f7"
+      "sha256": "12f9ad4eee97e7e1b83438d495c3da9e1c8c3524b102074b6bb0dd39e388773c"
     },
     {
       "path": "previews/album-normal.webp",
@@ -133,13 +133,13 @@
       "path": "previews/artist-normal.webp",
       "role": "other",
       "caption": "Artist · Normal",
-      "sha256": "6bfe7a288c97ba8823df11c0d4b41e81d33662c8489a7a945e51e81f32919f8f"
+      "sha256": "8226553ecbff793ce421bd2e7763e08c737848ae85439efa17cedf60a38a379e"
     },
     {
       "path": "previews/artist-glass.webp",
       "role": "other",
       "caption": "Artist · Glass",
-      "sha256": "58b6a402f386dbcf8424c1d7bcef443ceb986fa201db22b60a2b86e2ed28cb3a"
+      "sha256": "b5eedf8985feb490f9b240f53341bf0151a2f562f21128e3b0f480bd584a5ec6"
     },
     {
       "path": "previews/playlist-normal.webp",
@@ -157,37 +157,37 @@
       "path": "previews/local-playlist-normal.webp",
       "role": "other",
       "caption": "Local playlist · Normal",
-      "sha256": "2d16a144ca801572191907d363d51e2004c664f28b3a23adb7806993e6ff0369"
+      "sha256": "e8f7f9312a9d5f46541fa87afdff7119399bc5281b276a5947862310ea9769cc"
     },
     {
       "path": "previews/local-playlist-glass.webp",
       "role": "other",
       "caption": "Local playlist · Glass",
-      "sha256": "9956d476e46c50db4fa88b5804f0895785f606e77faca9151e0d859a484ed161"
+      "sha256": "8df810e5a9d5c3230db65dd78b01116bdb1dc353cc94464f698c1586fb1c356c"
     },
     {
       "path": "previews/player-playing-normal.webp",
       "role": "other",
       "caption": "Player playing · Normal",
-      "sha256": "dc0cbc2f049532a9bbc204e9dd59fc6e2eb4bf407b0548dc6e2fcca450bfe9cf"
+      "sha256": "351559d05d9207784f76eb886f23f3dc452c78a36f2bf0f8107b8af4062cc814"
     },
     {
       "path": "previews/player-playing-glass.webp",
       "role": "other",
       "caption": "Player playing · Glass",
-      "sha256": "c2161b17350198b31c65d1f9ffdd3eb319c6644ac61105f34482378df96c4a20"
+      "sha256": "81bbfdcb9589207971c7eddcffb27c679420f282d1babd730ea17d095ae1e15b"
     },
     {
       "path": "previews/miniplayer-playing-normal.webp",
       "role": "other",
       "caption": "Mini-player playing · Normal",
-      "sha256": "83079e6ea4f49a59fdbe670dce13a38bfa1c6ef53e12179837003682b56d8363"
+      "sha256": "c475cfbfcc616aac4e630dcc7feecf2c7e8c09a146ee889dcc66d9032c45ba01"
     },
     {
       "path": "previews/miniplayer-playing-glass.webp",
       "role": "other",
       "caption": "Mini-player playing · Glass",
-      "sha256": "aafa9ac7577af3399d8bb08fa4b5f5faa09c4d39184281fba80e7459311cb665"
+      "sha256": "4114a0b9b81b7bf6da47028eeb7ce3daca8a97ff69efe5d86998de8fc2ac67ca"
     }
   ],
   "publishedOn": "2026-11-13"

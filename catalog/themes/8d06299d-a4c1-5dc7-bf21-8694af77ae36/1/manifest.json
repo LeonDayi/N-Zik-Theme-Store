@@ -24,170 +24,170 @@
     {
       "path": "previews/player-normal.webp",
       "role": "player",
-      "caption": "Player \u00b7 Normal",
-      "sha256": "348f7554369d437bcce470503b648b99dfb1882396925b2af2530ec90197b3b6"
+      "caption": "Player · Normal",
+      "sha256": "40903952732a2501d45f0e62e38f74e521a24cc892a9f93b60091f3a31710a64"
     },
     {
       "path": "previews/player-glass.webp",
       "role": "player",
-      "caption": "Player \u00b7 Glass",
-      "sha256": "e706c645663f26f6d533b905645adeae3f957f1e988726d4f3e33bbbed61e243"
+      "caption": "Player · Glass",
+      "sha256": "6c33cef8d578986de3725c794da51eb4cf3dc0d6408c5a683f6f3b6fb0e5ee92"
     },
     {
       "path": "previews/queue-normal.webp",
       "role": "queue",
-      "caption": "Queue \u00b7 Normal",
-      "sha256": "cf1f025647cc0d2bce2221fbc354d7c91a41f47a746bf78d3789de566d55c0f2"
+      "caption": "Queue · Normal",
+      "sha256": "c36bcf5a24d5e40738dd4f482d41aa24aec02f13d0f8b5e2ea1fb6a4eac715f9"
     },
     {
       "path": "previews/queue-glass.webp",
       "role": "queue",
-      "caption": "Queue \u00b7 Glass",
-      "sha256": "00177392f75f3be3a846831abb96869bb2d41740e63578975c28828b3bea2adb"
+      "caption": "Queue · Glass",
+      "sha256": "b794961c61a1dacb3a5c3622ec4185ff523146a514be634510749e40b7b57c87"
     },
     {
       "path": "previews/home-normal.webp",
       "role": "other",
-      "caption": "Home \u00b7 Normal",
-      "sha256": "a3467f0d31b75f14c71caadb4c9aaa131a0baa4493c142b456bc6fad8375661f"
+      "caption": "Home · Normal",
+      "sha256": "1630214d40e67ced481b39e93354f4d11430a766ad3e8530f76a8a9d94001c94"
     },
     {
       "path": "previews/home-glass.webp",
       "role": "other",
-      "caption": "Home \u00b7 Glass",
-      "sha256": "94f9129aafa2b449aacc61f03483402c72dd5aad17798aeeddace5f670fcfda7"
+      "caption": "Home · Glass",
+      "sha256": "b4822ddd040aa3e1558d35f90e8da7b1e42217d03012cd71f11bedacb0e8f2fb"
     },
     {
       "path": "previews/navigation-normal.webp",
       "role": "navigation",
-      "caption": "Library and navigation \u00b7 Normal",
-      "sha256": "b5e79b61a275020d1a2d540fd1299edd863ff6432ec3ca7a923ed23270c55b84"
+      "caption": "Library and navigation · Normal",
+      "sha256": "1f6c0329ad2e7af4a28f628ff71f6dc176134465ebf0a072a411dd67ae52deaa"
     },
     {
       "path": "previews/navigation-glass.webp",
       "role": "navigation",
-      "caption": "Library and navigation \u00b7 Glass",
-      "sha256": "71ae98e1c15125a7f475d74a7dbbb9dc254c74bdb499cc457bb364649f97837f"
+      "caption": "Library and navigation · Glass",
+      "sha256": "c6608909255e937f61b53cf9cca1d6bacae34bfcbbf1d13e7a934270befebb69"
     },
     {
       "path": "previews/search-normal.webp",
       "role": "other",
-      "caption": "Search \u00b7 Normal",
-      "sha256": "dcfe2ed116bd36c6e6faa27bb99625ee1bce470df31b2387af348ea35923cc04"
+      "caption": "Search · Normal",
+      "sha256": "b19c71eea809355cfd0d8159feb6c75eb57e3d9f9d12bebd08f54ea2b8208840"
     },
     {
       "path": "previews/search-glass.webp",
       "role": "other",
-      "caption": "Search \u00b7 Glass",
-      "sha256": "57ba46d4c23b18da2737a4f3bdcd070b9ad16dd46251dbe6bb0d86733847d724"
+      "caption": "Search · Glass",
+      "sha256": "5009c8a8904f0fc0f50e54f1f37aa127146429e0a0d1a016e68aaf3a74607f16"
     },
     {
       "path": "previews/album-normal.webp",
       "role": "other",
-      "caption": "Album \u00b7 Normal",
-      "sha256": "441d0619effc33c07936ac2e2bad88c8478bf6b19c0d77e9e64e7aa7b6166892"
+      "caption": "Album · Normal",
+      "sha256": "ee5f76d3f7f9dd8f39b8e8c3447f0924c5a50779144102286949f18546e5d230"
     },
     {
       "path": "previews/album-glass.webp",
       "role": "other",
-      "caption": "Album \u00b7 Glass",
-      "sha256": "2be994f7b2635191b30b24448c8fe9bb7d0282d1dcb35f1b115fb2b42fda4eb3"
+      "caption": "Album · Glass",
+      "sha256": "8f4e425a8cf2e58fe693a7aa2cb3bbde32642eebba074992f7507486159b39b1"
     },
     {
       "path": "previews/search-albums-normal.webp",
       "role": "other",
-      "caption": "Search albums \u00b7 Normal",
-      "sha256": "b89ba75435a63b2593acfdffcedfa0d74519c23f17e1afb53a6482f1b7fce2e8"
+      "caption": "Search albums · Normal",
+      "sha256": "25585bce78d0a928dac8fdeedbdf549802f24949c9780aa1240749a920796cb5"
     },
     {
       "path": "previews/search-albums-glass.webp",
       "role": "other",
-      "caption": "Search albums \u00b7 Glass",
-      "sha256": "8df311db2bb1a80a8cfc77fcc2eb9fc5849e41416f9f66b62aa25b255cbcd34a"
+      "caption": "Search albums · Glass",
+      "sha256": "036259dc75cce4edfbf58981a5c7fd80d944cb15c33302c1ec0836be85146982"
     },
     {
       "path": "previews/search-artists-normal.webp",
       "role": "other",
-      "caption": "Search artists \u00b7 Normal",
-      "sha256": "7ea6927f5a9e4b86e9ce08c168d6b899a90cd50b35fdb4688e2111a2f5fd7066"
+      "caption": "Search artists · Normal",
+      "sha256": "2013b6884a810dc550c0586a8cd4f35b9e25e3876f40add7c65e6540157a16ad"
     },
     {
       "path": "previews/search-artists-glass.webp",
       "role": "other",
-      "caption": "Search artists \u00b7 Glass",
-      "sha256": "cfbcf321d688cd09352bbf43724ef2d5a8bd2e4a0c06fc6fbc5a08c6df142372"
+      "caption": "Search artists · Glass",
+      "sha256": "80bf4c14f65822c29b54f43cdeb33f2fcca52b811e54a94cca39ab57d4d548ca"
     },
     {
       "path": "previews/lyrics-normal.webp",
       "role": "other",
-      "caption": "Lyrics \u00b7 Normal",
-      "sha256": "800113de3a1327c70c5e133a1beb07cbb95d5ee50984d5d663aa86d655b02059"
+      "caption": "Lyrics · Normal",
+      "sha256": "fa90df2d440ed2df4dd441b2f6c9235e737a4546c2a671040f8cbf0c8ec9d0cf"
     },
     {
       "path": "previews/lyrics-glass.webp",
       "role": "other",
-      "caption": "Lyrics \u00b7 Glass",
-      "sha256": "a81e7fc6e287da63032d4123969c2886c752da3abcf0efab1db83a52420b57b4"
+      "caption": "Lyrics · Glass",
+      "sha256": "ceba5696134259a50cac1800f98e792a566e855636cd5d132e1e5ace0b2bb17c"
     },
     {
       "path": "previews/artist-normal.webp",
       "role": "other",
-      "caption": "Artist \u00b7 Normal",
-      "sha256": "466d0c2a082fec5d3aadb336f24756034c953649a55c5b020efd760f6e37aee4"
+      "caption": "Artist · Normal",
+      "sha256": "0e6b3a6f020929d2451b49834c1de89fa57a8648bdad8cc8787fee096c570eba"
     },
     {
       "path": "previews/artist-glass.webp",
       "role": "other",
-      "caption": "Artist \u00b7 Glass",
-      "sha256": "57c1efa80b454be3a9e09dc7e5802a1c98034100a076e0fcdff6a49656024971"
+      "caption": "Artist · Glass",
+      "sha256": "5df47509d12ca4f44b26bdbe851bf7c3ddb54b9e414fca273a1436be0f10c4ab"
     },
     {
       "path": "previews/playlist-normal.webp",
       "role": "other",
-      "caption": "Playlist \u00b7 Normal",
-      "sha256": "b78d2b40554a86c572e06c39a02d855e15e85c7add2d6d52de6bdc94e914dbcd"
+      "caption": "Playlist · Normal",
+      "sha256": "92df9d7c7873bd116d4510ebf5f422c1df3b132514fa0f77a00394efcfe79d45"
     },
     {
       "path": "previews/playlist-glass.webp",
       "role": "other",
-      "caption": "Playlist \u00b7 Glass",
-      "sha256": "5df5f156d8dd11498cf85cc2da4bac4f4b346665ec02251cab3b445eb21c25fc"
+      "caption": "Playlist · Glass",
+      "sha256": "a20c265acf86942d56355577f83e9d327e7406a4e1077dbf1931e37b55d8e3f3"
     },
     {
       "path": "previews/local-playlist-normal.webp",
       "role": "other",
-      "caption": "Local playlist \u00b7 Normal",
-      "sha256": "c6d431acac33e7e6570599dac3bdc4718345f82f1bd16ec8861a8514b03d174a"
+      "caption": "Local playlist · Normal",
+      "sha256": "34022c36c73bc5e6bec0c76dc2ad879d5ff3791460129384e4cafdd8e5b90fde"
     },
     {
       "path": "previews/local-playlist-glass.webp",
       "role": "other",
-      "caption": "Local playlist \u00b7 Glass",
-      "sha256": "22d70748ae6d9f68016e54e55a61dadba36746be7dc63431f79ac0577f8a1577"
+      "caption": "Local playlist · Glass",
+      "sha256": "ab3d9d43e17af702ede84ba23e211b8535d82a3e25b650f95d4646b28570e3f8"
     },
     {
       "path": "previews/player-playing-normal.webp",
       "role": "other",
-      "caption": "Player playing \u00b7 Normal",
-      "sha256": "b61d882cab4142816fbd40db499a40a8fe6ccb15e14b0c0d6e8ee0346c760d39"
+      "caption": "Player playing · Normal",
+      "sha256": "3823c99074abad2289331c6de225bd3d2efedd6d5aa9bc4ed330ba67c48fb0d7"
     },
     {
       "path": "previews/player-playing-glass.webp",
       "role": "other",
-      "caption": "Player playing \u00b7 Glass",
-      "sha256": "b8cf15a87dc53361e2ef66b5c2fb6d6ae1d06f0a4334502e2066b855d6fc22f4"
+      "caption": "Player playing · Glass",
+      "sha256": "d13338aae230daa34fbf99e91e384ebcc2909b2b96f91a67927fc2f6c46d903b"
     },
     {
       "path": "previews/miniplayer-playing-normal.webp",
       "role": "other",
-      "caption": "Mini-player playing \u00b7 Normal",
-      "sha256": "bee04e944cb35e640b425ed43dc6c0f5c8da3d88e5d5377093973f81c379d5e6"
+      "caption": "Mini-player playing · Normal",
+      "sha256": "f6fa775ce72ac3d4e6ed3f31d30c71704ca2f7690703a391b74cec2f7924aa11"
     },
     {
       "path": "previews/miniplayer-playing-glass.webp",
       "role": "other",
-      "caption": "Mini-player playing \u00b7 Glass",
-      "sha256": "888cca0dc414790d73ccef91dadb63905dfd5f6780bd12bfde4d15c831518ae5"
+      "caption": "Mini-player playing · Glass",
+      "sha256": "88af7ffaefb30cf3b4ad68c289f0464841ee2b23cf79727a6a61c0cc284c457e"
     }
   ],
   "publishedOn": "2026-11-13"

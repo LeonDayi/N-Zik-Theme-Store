@@ -13,62 +13,12 @@ on:
 permissions:
   contents: read
   actions: read
-
-concurrency:
-  group: n-zik-roadmap-reconciliation
-  cancel-in-progress: false
+  issues: write
 
 jobs:
   reconcile:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out the trusted Theme Store scripts
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: N-Zik-Group/N-Zik-Theme-Store
-          ref: refs/heads/main
-          persist-credentials: false
-          sparse-checkout: .github/scripts
-      - name: Restore the last reconciliation snapshot
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/roadmap-state"
-          workflow="/repos/$GITHUB_REPOSITORY/actions/workflows/roadmap-reconcile.yml/runs"
-          earliest=$(date -u -d '90 days ago' +%FT%TZ)
-          for run_page in {1..10}; do
-            runs=$(gh api --method GET "$workflow" -f branch=main -f status=success \
-              -f "created=>=$earliest" -F per_page=100 -F "page=$run_page" --jq '.workflow_runs')
-            while IFS= read -r run_id; do
-              [[ -n "$run_id" ]] || continue
-              artifact=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?name=roadmap-state" \
-                --jq '[.artifacts[] | select(.name == "roadmap-state" and .expired == false)][0].id // empty')
-              if [[ -n "$artifact" ]]; then
-                gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" \
-                  > "$RUNNER_TEMP/roadmap-state.zip"
-                unzip -p "$RUNNER_TEMP/roadmap-state.zip" state.json > "$RUNNER_TEMP/roadmap-state/state.json"
-                exit 0
-              fi
-            done < <(jq -r '.[] | select(.event == "schedule" or .event == "workflow_dispatch") | .id' <<< "$runs")
-            if [[ "$(jq 'length' <<< "$runs")" -lt 100 ]]; then
-              break
-            fi
-          done
-      - name: Reconcile project 1
-        env:
-          ROADMAP_TOKEN: ${{ secrets.ROADMAP_TOKEN }}
-          ROADMAP_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-        run: |
-          export ROADMAP_STATE_FILE="$RUNNER_TEMP/roadmap-state/state.json"
-          node .github/scripts/roadmap.mjs reconcile
-      - name: Save the reconciliation snapshot
-        if: github.event_name == 'schedule' || !inputs.dry_run
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: roadmap-state
-          path: ${{ runner.temp }}/roadmap-state/state.json
-          if-no-files-found: error
-          retention-days: 90
+    uses: N-Zik-Group/N-Zik-Theme-Store/.github/workflows/roadmap-reconcile-shared.yml@main
+    with:
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    secrets:
+      ROADMAP_TOKEN: ${{ secrets.ROADMAP_TOKEN }}

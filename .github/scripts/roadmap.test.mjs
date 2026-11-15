@@ -124,8 +124,9 @@ test('rejects untracked repositories, mismatched events and unexpected content',
   await assert.rejects(handleEvent(api, { ...opened, repo: desktop }, silent), /event repository/);
   opened.payload.issue.node_id = 'unrelated';
   await assert.rejects(handleEvent(api, opened, silent), /Could not validate/);
-  await assert.rejects(reconcile(api, { repo: desktop }, silent), /Theme Store/);
-  await assert.rejects(scan(api, { version: 1, project: 'another-project', cards: {} }), /project mismatch/);
+  await assert.rejects(reconcile(api, { repo: outside }, silent), /outside roadmap/);
+  await assert.rejects(scan(api, { version: 1, project: 'another-project', cards: {} }), /project\/repository mismatch/);
+  await assert.rejects(scan(api, { version: 1, project: project.id, repo: desktop, cards: {} }), /project\/repository mismatch/);
   assert.deepEqual(writes, []);
 });
 
@@ -273,6 +274,21 @@ test('reconciliation recovers close, merge and reopen lifecycle events without a
   ]);
 });
 
+test('each reconciliation updates only its own repository while adding verified cross-repository child cards', async () => {
+  const local = item(1, { repo: desktop });
+  const foreign = item(2);
+  const child = { ...item(3), parent: { id: local.id } };
+  const scanned = [card(local, 'progress'), card(foreign, 'progress')];
+  const { api, writes, edges } = fixture([local, foreign, child], scanned);
+  const baseline = await reconcile(api, { repo: desktop }, silent);
+  assert.equal(baseline.repo, desktop);
+  assert.deepEqual(Object.keys(baseline.cards), [scanned[0].id]);
+  scanned.forEach(value => { value.status.optionId = 'done'; });
+  edges.set(local.id, { children: [child], links: [] });
+  await reconcile(api, { repo: desktop, previous: baseline }, silent);
+  assert.deepEqual(writes, [['close', 1, 'COMPLETED'], ['add', 3], ['status', 'card-node-3', 'Backlogs']]);
+});
+
 test('reconciliation baselines new Status option IDs without closing open issues', async () => {
   const subject = item(1);
   const value = card(subject, 'done');
@@ -376,7 +392,7 @@ const response = value => new Response(JSON.stringify(value));
 
 test('paginates board cards and batched initial relationships', async () => {
   const requests = [];
-  const api = new GitHub('mock', async (_url, { body }) => {
+  const api = new GitHub('mock', { fetcher: async (_url, { body }) => {
     const { query, variables } = JSON.parse(body);
     requests.push(variables);
     assert.match(query, /subIssues\(first: 30\)/);
@@ -384,7 +400,7 @@ test('paginates board cards and batched initial relationships', async () => {
     const number = variables.cursor ? 2 : 1;
     const subject = { ...item(number), issueState: 'OPEN', subIssues: connection([]), links: connection([]) };
     return response({ data: { node: { items: connection([card(subject)], number === 1 ? 'next' : null) } } });
-  });
+  } });
   const cards = await api.board(project.id);
   assert.deepEqual(cards.map(value => value.content.state), ['OPEN', 'OPEN']);
   assert.deepEqual(requests, [{ id: project.id, cursor: null }, { id: project.id, cursor: 'next' }]);
@@ -394,14 +410,14 @@ test('paginates board cards and batched initial relationships', async () => {
 
 test('paginates both relationships independently after the batched project page', async () => {
   const calls = [];
-  const api = new GitHub('mock', async (_url, { body }) => {
+  const api = new GitHub('mock', { fetcher: async (_url, { body }) => {
     const { query, variables } = JSON.parse(body);
     calls.push(variables);
     if (query.includes('subIssues')) {
       return response({ data: { node: { subIssues: connection([item(3)]) } } });
     }
     return response({ data: { node: { links: connection([{ id: 'pr-2' }]) } } });
-  });
+  } });
   const relationships = await api.relationships({
     ...item(1), subIssues: connection([item(2)], 'child-next'), links: connection([{ id: 'pr-1' }], 'pr-next'),
   });
@@ -414,14 +430,18 @@ test('paginates both relationships independently after the batched project page'
 test('validates project number, status options, repository and write permission', async () => {
   const result = {
     organization: {
-      login: 'N-Zik-Group', projectV2: {
+      projectV2: {
         id: project.id, number: 1, closed: false, viewerCanUpdate: true,
         field: { id: project.field, options: Object.entries(project.options).map(([name, id]) => ({ name, id })) },
       },
     },
     repository: { nameWithOwner: desktop },
   };
-  const api = new GitHub('mock', async () => response({ data: result }));
+  const api = new GitHub('project-token', { fetcher: async (_url, { headers, body }) => {
+    assert.equal(headers.Authorization, 'Bearer project-token');
+    assert.doesNotMatch(JSON.parse(body).query, /\blogin\s+projectV2/);
+    return response({ data: result });
+  } });
   assert.deepEqual(await api.project(desktop), project);
   await assert.rejects(api.project(central), /Could not validate/);
   result.organization.projectV2.number = 2;
@@ -437,11 +457,12 @@ test('validates project number, status options, repository and write permission'
 test('the REST assignment adds only NEVARLeVrai and does not replace existing assignees', async () => {
   const calls = [];
   const people = [{ login: 'existing' }];
-  const api = new GitHub('mock', async (url, { method, body }) => {
+  const api = new GitHub('project-token', { repo: desktop, repositoryToken: 'caller-token', fetcher: async (url, { method, body, headers }) => {
+    assert.equal(headers.Authorization, 'Bearer caller-token');
     calls.push({ url, method, body });
     if (method === 'POST') people.push(...JSON.parse(body).assignees.map(login => ({ login })));
     return response({ assignees: people });
-  });
+  } });
   const pr = item(1, { kind: 'PullRequest', repo: desktop });
   await api.assign(pr);
   await api.assign(pr);
@@ -452,4 +473,20 @@ test('the REST assignment adds only NEVARLeVrai and does not replace existing as
     { url, method: 'GET', body: undefined },
   ]);
   assert.deepEqual(people.map(person => person.login), ['existing', 'NEVARLeVrai']);
+});
+
+test('only the caller token may close issues, and only in the caller repository', async () => {
+  const requests = [];
+  const api = new GitHub('project-token', { repo: desktop, repositoryToken: 'caller-token', fetcher: async (url, request) => {
+    requests.push({ url, method: request.method, token: request.headers.Authorization, body: JSON.parse(request.body) });
+    return response({ state: 'closed', state_reason: 'completed' });
+  } });
+  await assert.rejects(api.close(item(1)), /outside the caller/);
+  await assert.rejects(api.assign(item(1)), /outside the caller/);
+  await assert.rejects(api.close(item(2, { repo: desktop, kind: 'PullRequest' })), /Only issues/);
+  await api.close(item(3, { repo: desktop }));
+  assert.deepEqual(requests, [{
+    url: `https://api.github.com/repos/${desktop}/issues/3`, method: 'PATCH',
+    token: 'Bearer caller-token', body: { state: 'closed', state_reason: 'completed' },
+  }]);
 });

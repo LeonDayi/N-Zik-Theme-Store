@@ -2,7 +2,6 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 const organization = 'N-Zik-Group';
-const centralRepository = `${organization}/N-Zik-Theme-Store`;
 const projectNumber = 1;
 const assignee = 'NEVARLeVrai';
 const statuses = ['Backlogs', 'In Progress', 'Done'];
@@ -54,17 +53,21 @@ function normalizeCard(value) {
 }
 
 export class GitHub {
-  constructor(token, fetcher = fetch) {
+  constructor(token, { repositoryToken, repo, fetcher = fetch } = {}) {
     if (!token) throw new Error('Missing ROADMAP_TOKEN');
     this.token = token;
+    this.repositoryToken = repositoryToken;
+    this.repo = repo;
     this.fetch = fetcher;
   }
 
   async request(path, method, body) {
+    const token = path === '/graphql' ? this.token : this.repositoryToken;
+    if (!token) throw new Error('Missing caller GITHUB_TOKEN');
     const response = await this.fetch(`https://api.github.com${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json',
       },
@@ -87,7 +90,7 @@ export class GitHub {
     const { organization: owner, repository: target } = await this.graphql(`
       query RoadmapProject($owner: String!, $number: Int!, $repo: String!) {
         organization(login: $owner) {
-          login projectV2(number: $number) {
+          projectV2(number: $number) {
             id number closed viewerCanUpdate field(name: "Status") {
               ... on ProjectV2SingleSelectField { id options { id name } }
             }
@@ -96,8 +99,7 @@ export class GitHub {
         repository(owner: $owner, name: $repo) { nameWithOwner }
       }`, { owner: organization, number: projectNumber, repo: repo.split('/')[1] });
     const project = owner?.projectV2;
-    if (owner?.login !== organization || project?.number !== projectNumber ||
-        !project.id || project.closed || target?.nameWithOwner !== repo) {
+    if (project?.number !== projectNumber || !project.id || project.closed || target?.nameWithOwner !== repo) {
       throw new Error(`Could not validate ${repo} and ${organization} project ${projectNumber}`);
     }
     if (!project.viewerCanUpdate) throw new Error(`ROADMAP_TOKEN cannot update project ${projectNumber}`);
@@ -191,8 +193,15 @@ export class GitHub {
       }`, { project: project.id, item: id, field: project.field, option: project.options[status] });
   }
 
+  repositoryIssuePath(item) {
+    if (!repositories.has(this.repo) || repoOf(item) !== this.repo) {
+      throw new Error('Repository operation outside the caller repository');
+    }
+    return `/repos/${this.repo}/issues/${item.number}`;
+  }
+
   async assign(item) {
-    const path = `/repos/${item.repository.nameWithOwner}/issues/${item.number}`;
+    const path = this.repositoryIssuePath(item);
     const assigned = result => result.assignees.some(user => user.login.toLowerCase() === assignee.toLowerCase());
     if (assigned(await this.request(path, 'GET'))) return;
     const updated = await this.request(`${path}/assignees`, 'POST', { assignees: [assignee] });
@@ -200,10 +209,8 @@ export class GitHub {
   }
 
   async close(item) {
-    await this.graphql(`
-      mutation RoadmapClose($id: ID!) {
-        closeIssue(input: {issueId: $id, stateReason: COMPLETED}) { issue { id } }
-      }`, { id: item.id });
+    if (item.__typename !== 'Issue') throw new Error('Only issues can be closed as completed');
+    await this.request(this.repositoryIssuePath(item), 'PATCH', { state: 'closed', state_reason: 'completed' });
   }
 }
 
@@ -327,23 +334,25 @@ async function setStatus(api, project, value, status, dryRun, log) {
 }
 
 export async function reconcile(api, { repo, previous, dryRun }, log = console.log) {
-  if (repo !== centralRepository) throw new Error('Reconciliation must run in Theme Store');
+  if (!repositories.has(repo)) throw new Error(`Repository outside roadmap scope: ${repo}`);
   const project = await api.project(repo);
   if (previous && (previous.version !== 1 || previous.project !== project.id ||
+      (previous.repo && previous.repo !== repo) ||
       !previous.cards || typeof previous.cards !== 'object' || Array.isArray(previous.cards))) {
-    throw new Error('Invalid roadmap snapshot or project mismatch');
+    throw new Error('Invalid roadmap snapshot or project/repository mismatch');
   }
   const statusSchema = JSON.stringify([project.field, ...statuses.map(name => project.options[name])]);
-  if (previous && previous.statusSchema !== statusSchema) {
-    log('The project Status configuration changed. Recording a fresh baseline.');
+  if (previous && (!previous.repo || previous.statusSchema !== statusSchema)) {
+    log('The roadmap snapshot scope or Status configuration changed. Recording a fresh baseline.');
     previous = undefined;
   }
   const cards = (await api.board(project.id)).filter(value => value.project.id === project.id && tracked(value.content));
   const membership = new Set(cards.map(value => value.content.id));
-  const next = { version: 1, project: project.id, statusSchema, cards: Object.create(null) };
-  log(`Validated ${organization} project ${projectNumber}. Tracking ${cards.length} cards across: ${[...repositories].join(', ')}`);
+  const localCards = cards.filter(value => repoOf(value.content) === repo);
+  const next = { version: 1, project: project.id, repo, statusSchema, cards: Object.create(null) };
+  log(`Validated ${organization} project ${projectNumber}. Tracking ${localCards.length} cards in ${repo}.`);
   if (!previous) log('No previous snapshot. Recording a baseline without changing existing cards.');
-  for (const scan of cards) {
+  for (const scan of localCards) {
     if (scan.isArchived) continue;
     const item = scan.content;
     const relationships = item.__typename === 'Issue' ? await api.relationships(item) : { children: [], links: [] };
@@ -418,8 +427,8 @@ export async function reconcile(api, { repo, previous, dryRun }, log = console.l
 }
 
 async function main() {
-  const api = new GitHub(process.env.ROADMAP_TOKEN);
   const repo = process.env.GITHUB_REPOSITORY;
+  const api = new GitHub(process.env.ROADMAP_TOKEN, { repo, repositoryToken: process.env.ROADMAP_REPOSITORY_TOKEN });
   const dryRun = process.env.ROADMAP_DRY_RUN === 'true';
   if (process.argv[2] === 'reconcile') {
     const stateFile = process.env.ROADMAP_STATE_FILE;

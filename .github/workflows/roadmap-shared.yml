@@ -15,6 +15,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   roadmap:
@@ -31,6 +33,7 @@ jobs:
       - name: Route the repository event
         env:
           ROADMAP_TOKEN: ${{ secrets.ROADMAP_TOKEN }}
+          ROADMAP_REPOSITORY_TOKEN: ${{ github.token }}
           ROADMAP_ITEM_NUMBER: ${{ inputs.number }}
           ROADMAP_DRY_RUN: ${{ inputs.dry_run }}
         run: node .github/scripts/roadmap.mjs event

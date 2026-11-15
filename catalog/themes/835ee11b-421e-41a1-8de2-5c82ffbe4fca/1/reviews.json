@@ -1,1 +1,14 @@
-{"schemaVersion":1,"reviews":[]}
+{
+  "schemaVersion": 1,
+  "reviews": [
+    {
+      "author": {
+        "githubId": 63956787,
+        "login": "NEVARLeVrai"
+      },
+      "kind": "community",
+      "rating": 5,
+      "comment": "[QA] Simultaneous moderation retest. This fixture is removed after verification."
+    }
+  ]
+}

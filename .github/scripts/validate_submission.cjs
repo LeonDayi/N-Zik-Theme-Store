@@ -122,6 +122,7 @@ function trustedCandidate(root, current) {
   const { number, base, head } = current;
   const env = { ...process.env };
   delete env.THEME_STORE_CLEANUP_TOKEN;
+  delete env.THEME_STORE_MERGE_TOKEN;
   const run = (command, args, options = {}) => execFileSync(command, args, {
     cwd: root, env, maxBuffer: 4 * 1024 * 1024 + 1, ...options,
   });
@@ -171,6 +172,7 @@ function trustedCandidate(root, current) {
     }
     run('python', ['-B', '.github/scripts/validate_catalog.py'], { stdio: 'inherit' });
   }
+  let validatedTree;
   return {
     ancestor, base: base.sha, head: head.sha, changes, read, blob,
     validateMerged() {
@@ -181,6 +183,27 @@ function trustedCandidate(root, current) {
       const allowedPaths = new Set(changes.map(file => file.filename));
       assert(mergedChanges.every(file => allowedPaths.has(file.filename)), 'The merge changes files outside the checked submission.');
       validate(mergedChanges, merged);
+      validatedTree = merged;
+    },
+    publishValidatedMerge(message, token) {
+      assert(validatedTree, 'The merge tree must pass catalog validation before publication.');
+      const commit = revision(
+        '-c', 'user.name=github-actions[bot]',
+        '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+        'commit-tree', validatedTree, '-p', base.sha, '-p', head.sha, '-m', message,
+      );
+      const pushEnv = token ? {
+        ...env,
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+        GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ' + Buffer.from('x-access-token:' + token).toString('base64'),
+        GIT_TERMINAL_PROMPT: '0',
+      } : env;
+      // The validated base is the commit's first parent. The explicit lease also
+      // makes Git reject the update if main was changed or rewound during validation.
+      run('git', ['push', `--force-with-lease=refs/heads/main:${base.sha}`,
+        'origin', `${commit}:refs/heads/main`], { env: pushEnv });
+      return commit;
     },
     validateRepairedIndex(index) {
       validate(changes, head.sha, { filename: themeIndexPath, bytes: Buffer.from(JSON.stringify(index, null, 2) + '\n') });

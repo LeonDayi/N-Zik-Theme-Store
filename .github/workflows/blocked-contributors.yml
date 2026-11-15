@@ -33,6 +33,7 @@ jobs:
         run: python -m pip install -r requirements-validation.txt
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
+          THEME_STORE_MERGE_TOKEN: ${{ github.token }}
           THEME_STORE_CLEANUP_TOKEN: ${{ secrets.THEME_STORE_CLEANUP_TOKEN }}
         with:
           script: |
@@ -484,20 +485,28 @@ jobs:
                 return;
               }
               candidate.validateMerged();
-              const { data: baseHead } = await github.rest.git.getRef({ ...context.repo, ref: `heads/${ref}` });
-              if (baseHead.object.sha !== current.base.sha) {
-                core.setFailed('Main changed during validation. Reapply accepted against current main.');
+              const { data: live } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+              const liveLabels = new Set(live.labels.map(label => label.name));
+              if (live.state !== 'open' || live.draft || live.head.sha !== candidate.head ||
+                  live.head.repo?.id !== current.head.repo?.id || live.base.ref !== 'main' ||
+                  live.base.sha !== candidate.base || !liveLabels.has('accepted') ||
+                  liveLabels.has('refused') || liveLabels.has('ban')) {
+                core.setFailed('The pull request or main changed during validation. Reapply accepted after review.');
                 return;
               }
-              const { data: merge } = await github.rest.pulls.merge({
-                ...context.repo, pull_number: pull.number, sha: pull.head.sha
-              });
-              if (!merge.merged) {
-                core.setFailed('GitHub did not merge the submission. Check the required checks and branch rules.');
-                return;
-              }
+              const token = process.env.THEME_STORE_MERGE_TOKEN;
+              if (!token) throw new Error('The GitHub workflow token is missing.');
+              candidate.publishValidatedMerge(`Merge Theme Store submission #${pull.number}`, token);
               await announcePublication();
-              await cleanSubmissionBranch(pull.head.sha, true);
+              // GitHub recognizes the PR as merged once its approved commit is reachable from main.
+              for (let attempt = 0; attempt < 6; attempt++) {
+                const { data: merged } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+                if (merged.merged) {
+                  await cleanSubmissionBranch(pull.head.sha, true);
+                  break;
+                }
+                if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 2000));
+              }
               return;
             }
             if (decision === 'ban' && !blocked) {

@@ -164,4 +164,22 @@ test('trusted checkout validates merged data for the exact approved PR head', t 
   assert.deepEqual(queued.changes, [file('catalog/submission.json')]);
   assert.doesNotThrow(() => queued.validateMerged());
   assert.equal(run('rev-parse', 'HEAD'), latestBase);
+  run('update-ref', 'refs/heads/main', latestBase);
+  assert.throws(() => trustedCandidate(root, { ...pr, base: { sha: latestBase } })
+    .publishValidatedMerge('Unvalidated merge'), /must pass/);
+
+  const tree = run('rev-parse', 'HEAD^{tree}');
+  const racingCommit = run('commit-tree', tree, '-p', latestBase, '-m', 'Independent publication');
+  run('update-ref', 'refs/heads/main', racingCommit);
+  assert.throws(() => queued.publishValidatedMerge('Stale approval'), /stale info/);
+  assert.equal(run('rev-parse', 'refs/heads/main'), racingCommit);
+
+  run('reset', '--hard', latestBase);
+  run('checkout', '--detach', '-q', racingCommit);
+  const retry = trustedCandidate(root, { ...pr, base: { sha: racingCommit } });
+  retry.validateMerged();
+  const merged = retry.publishValidatedMerge('Revalidated approval');
+  assert.equal(run('rev-parse', 'refs/heads/main'), merged);
+  assert.equal(run('rev-parse', merged + '^1'), racingCommit);
+  assert.equal(run('rev-parse', merged + '^2'), head);
 });

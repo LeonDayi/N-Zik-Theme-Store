@@ -18,7 +18,7 @@
 
 # 🎨 Browse themes
 
-The [catalog index](themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. Each published revision declares its own compatibility.
+The [catalog index](catalog/themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. Each published revision declares its own compatibility.
 
 <div align="center">
 

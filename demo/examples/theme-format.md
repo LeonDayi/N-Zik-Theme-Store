@@ -2,14 +2,14 @@
 
 ## 📦 Repository layout
 
-- [themes/index.json](../../themes/index.json) lists the revisions available for download.
-- [schemas/v1/](../../schemas/v1/) defines the catalog index, theme manifest and appearance payload in JSON Schema Draft 2020-12.
+- [catalog/themes/index.json](../../catalog/themes/index.json) lists the revisions available for download.
+- [catalog/schemas/v1/](../../catalog/schemas/v1/) defines the catalog index, theme manifest and appearance payload in JSON Schema Draft 2020-12.
 - [theme-v1/](theme-v1/) contains a sample manifest and configuration for validation.
 
 Published revisions use this layout:
 
 ```text
-themes/<themeId>/<revision>/
+catalog/themes/<themeId>/<revision>/
   manifest.json
   appearance.json
   previews/
@@ -58,25 +58,29 @@ accepted by the schema. Required screen names are `player`, `queue`, `lyrics`,
 `search-albums` and `search-artists`. Use the corresponding role for the player,
 queue and navigation. Use `other` for all other screens. Add a readable caption.
 
+N-Zik also captures `player-playing` and `miniplayer-playing` with the demo
+player running. Include both Normal and Glass variants for each playback
+scene you add. The app generates them for both Publish and Edit.
+
 ## Maintainer reviews
 
-A theme revision can have a `themes/<themeId>/<revision>/reviews.json` file
+A theme revision can have a `catalog/themes/<themeId>/<revision>/reviews.json` file
 next to its manifest. Reviews apply to that revision. A missing file means the
 revision has no maintainer reviews. Each GitHub author can review a revision once.
 
-See the [review schema](../../schemas/v1/reviews.schema.json) and
+See the [review schema](../../catalog/schemas/v1/reviews.schema.json) and
 [example](theme-v1/reviews.json).
 
 ## Creator profiles
 
-Look up `creators/<githubId>/profile.json` using the theme manifest's author ID.
+Look up `catalog/creators/<githubId>/profile.json` using the theme manifest's author ID.
 The GitHub ID and login identify the authenticated account. The profile editor
 must keep them read-only. Maintainers verify account ownership before publishing
 profile changes. The display name and bio are editable.
 
 An avatar with source `github` uses the account avatar resolved by GitHub ID.
-A banner with source `generated` uses a gradient derived from that ID, so it
-looks consistent across visits. For either image, `custom` refers to an image
+A banner with source `generated` selects a variant from the demo banner set
+using the GitHub ID. For either image, `custom` refers to an image
 committed next to the profile JSON and pinned by SHA-256. Clients can use the
 default artwork if a profile or image is unavailable.
 
@@ -89,19 +93,19 @@ Recommended dimensions for custom images:
 
 The dimensions are recommendations. The schema does not inspect image pixels.
 
-See the [creator schema](../../schemas/v1/creator.schema.json) and
+See the [creator schema](../../catalog/schemas/v1/creator.schema.json) and
 [example](creator-v1/profile.json).
 
-The [creator index](../../creators/index.json) lists published profiles independently
+The [creator index](../../catalog/creators/index.json) lists published profiles independently
 of the theme catalog and pins each profile's SHA-256. Update the index when a
 profile is added, removed or changed.
 
-The [verified creator list](../../creators/verified.json) is maintained by the
+The [verified creator list](../../catalog/creators/verified.json) is maintained by the
 project. A verified GitHub ID marks the creator and their themes as official.
 Keep this list separate from editable profiles.
 
 Maintainers can add a numeric GitHub ID and a public moderation message to
-[`creators/blocked.json`](../../creators/blocked.json). N-Zik shows that message when
+[`catalog/creators/blocked.json`](../../catalog/creators/blocked.json). N-Zik shows that message when
 the account tries to connect or submit a profile. The repository workflow closes
 pull requests from listed accounts and posts the same message. Keep private
 information out of these messages.

@@ -65,7 +65,7 @@ jobs:
               && /^nzik\/theme-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(pull.head.ref);
             const reviewBranch = authorOwnsHead && /^nzik\/review-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})-([1-9]\d*)-([1-9]\d*)$/.exec(pull.head.ref);
             const isReview = reviewBranch && reviewBranch[3] === String(pull.user.id);
-            const reviewPath = isReview ? `themes/${reviewBranch[1]}/${reviewBranch[2]}/reviews.json` : '';
+            const reviewPath = isReview ? `catalog/themes/${reviewBranch[1]}/${reviewBranch[2]}/reviews.json` : '';
             const labelAdded = event.action === 'labeled' ? event.label.name : '';
             if (labelAdded) {
               if ((!['accepted', 'refused', 'ban'].includes(labelAdded) && !Object.hasOwn(reasons, labelAdded)) || pull.merged) return;
@@ -107,15 +107,15 @@ jobs:
                   types.add('theme review');
                   continue;
                 }
-                if (/^creators\/\d+\/profile\.json$/.test(file.filename)) {
+                if (/^catalog\/creators\/\d+\/profile\.json$/.test(file.filename)) {
                   types.add(file.status === 'added' ? 'new creator profile' : 'update creator profile');
                 }
-                const theme = /^themes\/([0-9a-f-]{36})\/\d+\/[^/]+/.exec(file.filename);
+                const theme = /^catalog\/themes\/([0-9a-f-]{36})\/\d+\/[^/]+/.exec(file.filename);
                 if (theme) themes.add(theme[1]);
               }
               if (themes.size) {
                 const { data: index } = await github.rest.repos.getContent({
-                  ...context.repo, path: 'themes/index.json', ref: current.base.sha
+                  ...context.repo, path: 'catalog/themes/index.json', ref: current.base.sha
                 });
                 const published = new Set(JSON.parse(Buffer.from(index.content, 'base64')).themes.map(theme => theme.themeId));
                 for (const id of themes) types.add(published.has(id) ? 'theme update' : 'new theme');
@@ -170,7 +170,7 @@ jobs:
               return;
             }
             const { data } = await github.rest.repos.getContent({
-              ...context.repo, path: 'creators/blocked.json', ref
+              ...context.repo, path: 'catalog/creators/blocked.json', ref
             });
             const list = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
             if (list.schemaVersion !== 1 || !Array.isArray(list.accounts)) throw new Error('Invalid moderation list');
@@ -183,13 +183,13 @@ jobs:
                 return;
               }
               if (isThemeSubmission && current.mergeable === false) {
-                const indexPath = 'themes/index.json';
+                const indexPath = 'catalog/themes/index.json';
                 const themeId = current.head.ref.slice('nzik/theme-'.length);
                 const files = await github.paginate(github.rest.pulls.listFiles, {
                   ...context.repo, pull_number: pull.number, per_page: 100
                 });
                 if (!files.some(file => file.filename === indexPath) || files.some(file =>
-                  file.filename !== indexPath && (!file.filename.startsWith(`themes/${themeId}/`) || file.status !== 'added'))) {
+                  file.filename !== indexPath && (!file.filename.startsWith(`catalog/themes/${themeId}/`) || file.status !== 'added'))) {
                   core.setFailed('The conflict includes changes outside the submitted revision. Resubmit from N-Zik.');
                   return;
                 }
@@ -211,8 +211,8 @@ jobs:
                 if (!submitted || !same(find(previousIndex), find(currentIndex)) ||
                     submitted.revision !== (find(currentIndex)?.revision ?? 0) + 1 ||
                     files.some(file => file.filename !== indexPath &&
-                      !file.filename.startsWith(`themes/${themeId}/${submitted.revision}/`)) ||
-                    !files.some(file => file.filename === `themes/${themeId}/${submitted.revision}/manifest.json`)) {
+                      !file.filename.startsWith(`catalog/themes/${themeId}/${submitted.revision}/`)) ||
+                    !files.some(file => file.filename === `catalog/themes/${themeId}/${submitted.revision}/manifest.json`)) {
                   core.setFailed('This theme changed on main. Resubmit against the current revision.');
                   return;
                 }
@@ -307,7 +307,7 @@ jobs:
               };
               list.accounts.push(blocked);
               await github.rest.repos.createOrUpdateFileContents({
-                ...context.repo, path: 'creators/blocked.json', branch: ref, sha: data.sha,
+                ...context.repo, path: 'catalog/creators/blocked.json', branch: ref, sha: data.sha,
                 message: `Block contributor ${pull.user.id}`,
                 content: Buffer.from(JSON.stringify(list, null, 2) + '\n').toString('base64')
               });

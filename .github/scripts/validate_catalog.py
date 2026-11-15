@@ -6,6 +6,7 @@ from jsonschema import Draft202012Validator
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CATALOG = ROOT / "catalog"
 
 
 def load_json(path):
@@ -13,7 +14,7 @@ def load_json(path):
 
 
 def load_schema(name):
-    schema = load_json(ROOT / "schemas" / "v1" / f"{name}.schema.json")
+    schema = load_json(CATALOG / "schemas" / "v1" / f"{name}.schema.json")
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema)
 
@@ -122,17 +123,17 @@ def main():
     validate_demo_assets()
     manifest_validator = load_schema("theme")
     appearance_validator = load_schema("appearance")
-    catalog = validate_json(ROOT / "themes" / "index.json", load_schema("catalog"))
+    catalog = validate_json(CATALOG / "themes" / "index.json", load_schema("catalog"))
     reviews_validator = load_schema("reviews")
     creator_validator = load_schema("creator")
-    validate_json(ROOT / "creators" / "verified.json", load_schema("verified-creators"))
-    blocked = validate_json(ROOT / "creators" / "blocked.json", load_schema("blocked-creators"))
+    validate_json(CATALOG / "creators" / "verified.json", load_schema("verified-creators"))
+    blocked = validate_json(CATALOG / "creators" / "blocked.json", load_schema("blocked-creators"))
     blocked_ids = [entry["githubId"] for entry in blocked["accounts"]]
     if len(blocked_ids) != len(set(blocked_ids)):
         raise ValueError("creators: duplicate blocked GitHub ID")
     validate_creator(ROOT / "demo" / "examples" / "creator-v1", creator_validator)
     creators = {}
-    creator_root = ROOT / "creators"
+    creator_root = CATALOG / "creators"
     index = validate_json(creator_root / "index.json", load_schema("creators-index"))
     for entry in index["creators"]:
         github_id = entry["githubId"]
@@ -154,7 +155,7 @@ def main():
         if theme_id in theme_ids:
             raise ValueError(f"catalog: duplicate theme ID {theme_id}")
         theme_ids.add(theme_id)
-        folder = ROOT / "themes" / theme_id / str(revision)
+        folder = CATALOG / "themes" / theme_id / str(revision)
         check_hash(folder / "manifest.json", entry["manifestSha256"])
         manifest = validate_theme(folder, manifest_validator, appearance_validator)
         validate_gallery(manifest)
@@ -165,7 +166,7 @@ def main():
         if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
             raise ValueError(f"{folder}: manifest ID or revision differs from the catalog")
 
-    for reviews in (ROOT / "themes").glob("*/*/reviews.json"):
+    for reviews in (CATALOG / "themes").glob("*/*/reviews.json"):
         if not (reviews.parent / "manifest.json").is_file():
             raise ValueError(f"{reviews}: missing revision manifest")
         validate_reviews(reviews.parent, reviews_validator)

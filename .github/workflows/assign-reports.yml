@@ -28,17 +28,17 @@ jobs:
             const close = async () => {
               await github.rest.issues.update({ ...issue, state: 'closed', state_reason: 'not_planned' });
             };
-            const blocked = await read('creators/blocked.json');
+            const blocked = await read('catalog/creators/blocked.json');
             if (blocked.accounts.some(account => account.githubId === current.user.id)) {
               await close();
               return;
             }
             if (match?.[2] === 'theme') {
-              const index = await read('themes/index.json');
+              const index = await read('catalog/themes/index.json');
               const revisions = index.themes.filter(theme => theme.themeId === match[1]);
               const latest = revisions.sort((a, b) => b.revision - a.revision)[0];
-              const manifest = latest && await read('themes/' + latest.themeId + '/' + latest.revision + '/manifest.json');
-              const verified = await read('creators/verified.json');
+              const manifest = latest && await read('catalog/themes/' + latest.themeId + '/' + latest.revision + '/manifest.json');
+              const verified = await read('catalog/creators/verified.json');
               if (!manifest || verified.githubIds.includes(manifest.author.githubId)) {
                 await close();
                 return;

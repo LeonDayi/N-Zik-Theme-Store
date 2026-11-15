@@ -173,12 +173,25 @@ function trustedCandidate(root, current) {
     run('python', ['-B', '.github/scripts/validate_catalog.py'], { stdio: 'inherit' });
   }
   let validatedTree;
+  let computedTree;
+  function mergeTree() {
+    if (computedTree !== undefined) return computedTree;
+    try {
+      const merged = revision('merge-tree', '--write-tree', base.sha, head.sha);
+      assert(/^[0-9a-f]{40}$/.test(merged), 'Git did not produce a candidate tree.');
+      computedTree = merged;
+    } catch (error) {
+      if (error.status !== 1) throw error;
+      computedTree = null;
+    }
+    return computedTree;
+  }
   return {
-    ancestor, base: base.sha, head: head.sha, changes, read, blob,
+    ancestor, base: base.sha, head: head.sha, changes, read, blob, mergeTree,
     validateMerged() {
       // This creates a candidate tree without checking out or running anything from the fork.
-      const merged = revision('merge-tree', '--write-tree', base.sha, head.sha);
-      assert(/^[0-9a-f]{40}$/.test(merged), 'Git did not produce a conflict-free candidate tree.');
+      const merged = mergeTree();
+      assert(merged, 'Git did not produce a conflict-free candidate tree.');
       const mergedChanges = diff(base.sha, merged);
       const allowedPaths = new Set(changes.map(file => file.filename));
       assert(mergedChanges.every(file => allowedPaths.has(file.filename)), 'The merge changes files outside the checked submission.');

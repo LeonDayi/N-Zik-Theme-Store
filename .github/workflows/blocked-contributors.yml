@@ -431,6 +431,9 @@ jobs:
               const trustedRoot = require('node:path').join(process.env.GITHUB_WORKSPACE, 'moderation-base');
               const { themeSubmission, creatorSubmission, trustedCandidate } =
                 require(require('node:path').join(trustedRoot, '.github/scripts/validate_submission.cjs'));
+              // Pull request metadata can still report the base from its prior mergeability check.
+              const { data: liveBase } = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
+              current.base.sha = liveBase.object.sha;
               const candidate = trustedCandidate(trustedRoot, current);
               const files = candidate.changes;
               let repairedIndex;
@@ -438,12 +441,12 @@ jobs:
                 const themeId = current.head.ref.slice('nzik/theme-'.length);
                 const { index } = themeSubmission(candidate, pull.user.id, pull.user.login, themeId);
                 await validateReservedTags(current, files);
-                if (current.mergeable === false) repairedIndex = index;
+                if (!candidate.mergeTree()) repairedIndex = index;
               }
               if (isSubmission) creatorSubmission(candidate, pull.user.id, pull.user.login);
               if (isWithdrawal) {
                 const index = await withdrawalIndex(current, files);
-                if (current.mergeable === false) repairedIndex = index;
+                if (!candidate.mergeTree()) repairedIndex = index;
               }
               if (isReview) {
                 if (files.length !== 1 || files[0].filename !== reviewPath ||
@@ -489,7 +492,7 @@ jobs:
               const liveLabels = new Set(live.labels.map(label => label.name));
               if (live.state !== 'open' || live.draft || live.head.sha !== candidate.head ||
                   live.head.repo?.id !== current.head.repo?.id || live.base.ref !== 'main' ||
-                  live.base.sha !== candidate.base || !liveLabels.has('accepted') ||
+                  !liveLabels.has('accepted') ||
                   liveLabels.has('refused') || liveLabels.has('ban')) {
                 core.setFailed('The pull request or main changed during validation. Reapply accepted after review.');
                 return;

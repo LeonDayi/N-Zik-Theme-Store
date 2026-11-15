@@ -147,7 +147,57 @@ jobs:
                 }
               }
             }
+            async function recordThemePublicationDate() {
+              const { data: merged } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+              if (!merged.merged_at) throw new Error('The theme submission has no merge date');
+              const date = merged.merged_at.slice(0, 10);
+              const themeId = pull.head.ref.slice('nzik/theme-'.length);
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                ...context.repo, pull_number: pull.number, per_page: 100
+              });
+              const prefix = `catalog/themes/${themeId}/`;
+              const file = files.find(item => item.status === 'added' && item.filename.startsWith(prefix)
+                && /^[1-9]\d*\/manifest\.json$/.test(item.filename.slice(prefix.length)));
+              if (!file) return;
+              const indexPath = 'catalog/themes/index.json';
+              const { createHash } = require('node:crypto');
+              for (let attempt = 0; attempt < 3; attempt++) {
+                const { data: head } = await github.rest.git.getRef({ ...context.repo, ref: `heads/${ref}` });
+                const sha = head.object.sha;
+                async function readJson(path) {
+                  const { data } = await github.rest.repos.getContent({ ...context.repo, path, ref: sha });
+                  return JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+                }
+                const [manifest, index] = await Promise.all([readJson(file.filename), readJson(indexPath)]);
+                if (manifest.themeId !== themeId || file.filename !== `${prefix}${manifest.revision}/manifest.json`) {
+                  throw new Error('Unexpected theme revision while recording publication date');
+                }
+                const row = index.themes.find(entry => entry.themeId === themeId);
+                if (!row || row.revision < manifest.revision || manifest.publishedOn === date) return;
+                manifest.publishedOn = date;
+                const manifestJson = JSON.stringify(manifest, null, 2) + '\n';
+                const entry = (path, content) => ({ path, content, mode: '100644', type: 'blob' });
+                const tree = [entry(file.filename, manifestJson)];
+                if (row.revision === manifest.revision) {
+                  row.manifestSha256 = createHash('sha256').update(manifestJson).digest('hex');
+                  tree.push(entry(indexPath, JSON.stringify(index, null, 2) + '\n'));
+                }
+                const { data: base } = await github.rest.git.getCommit({ ...context.repo, commit_sha: sha });
+                const { data: updated } = await github.rest.git.createTree({ ...context.repo, base_tree: base.tree.sha, tree });
+                const { data: commit } = await github.rest.git.createCommit({
+                  ...context.repo, message: `Record publication date for ${themeId} revision ${manifest.revision}`,
+                  tree: updated.sha, parents: [sha]
+                });
+                try {
+                  await github.rest.git.updateRef({ ...context.repo, ref: `heads/${ref}`, sha: commit.sha, force: false });
+                  return;
+                } catch (error) {
+                  if (![409, 422].includes(error.status) || attempt === 2) throw error;
+                }
+              }
+            }
             async function announcePublication() {
+              if (isThemeSubmission) await recordThemePublicationDate();
               await status('merged');
               if (!current.locked) {
                 const marker = '<!-- nzik-submission-merged -->';

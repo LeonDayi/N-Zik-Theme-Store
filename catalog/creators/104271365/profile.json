@@ -1,13 +1,17 @@
 {
-  "schemaVersion": 1,
-  "githubId": 104271365,
-  "login": "OrangeZXZ",
-  "displayName": "OrangeZXZ",
-  "bio": "",
-  "avatar": {
-    "source": "github"
-  },
-  "banner": {
-    "source": "generated"
-  }
+    "schemaVersion": 1,
+    "githubId": 104271365,
+    "login": "OrangeZXZ",
+    "displayName": "OrangeZXZ",
+    "bio": "https://linktr.ee/orangezxz",
+    "avatar": {
+        "source": "github"
+    },
+    "banner": {
+        "source": "custom",
+        "asset": {
+            "path": "banner.webp",
+            "sha256": "2056ada6d3cab2113e26153dbf9bdbf3dd06ab1417266ecae55ca531004d7148"
+        }
+    }
 }

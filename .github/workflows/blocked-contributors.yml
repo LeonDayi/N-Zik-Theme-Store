@@ -88,7 +88,7 @@ jobs:
             const reviewPath = isReview ? `catalog/themes/${reviewBranch[1]}/${reviewBranch[2]}/reviews.json` : '';
             const labelAdded = event.action === 'labeled' ? event.label.name : '';
             if (labelAdded) {
-              if ((!['accepted', 'refused', 'ban'].includes(labelAdded) && !Object.hasOwn(reasons, labelAdded)) || pull.merged) return;
+              if ((!['accepted', 'refused', 'ban'].includes(labelAdded) && !Object.hasOwn(reasons, labelAdded)) || (pull.merged && labelAdded !== 'accepted')) return;
               const { data: access } = await github.rest.repos.getCollaboratorPermissionLevel({
                 ...context.repo, username: event.sender.login
               });
@@ -160,9 +160,10 @@ jobs:
             }
             const themeLabels = ['new theme', 'theme update'];
             const isTheme = item => item.labels.some(label => themeLabels.includes(label.name));
+            const managedSubmission = isSubmission || isThemeSubmission || isReview || isWithdrawal;
             if (event.action === 'closed' && ((!isSubmission && !isReview && !isWithdrawal && !isTheme(pull)) || !pull.merged)) return;
             const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
-            if (current.merged && event.action !== 'closed' && !(isWithdrawal && labelAdded === 'accepted')) return;
+            if (current.merged && event.action !== 'closed' && !(managedSubmission && labelAdded === 'accepted')) return;
             const currentLabels = new Set(current.labels.map(label => label.name));
             if (event.action === 'reopened' && current.locked
                 && ['refused', 'ban'].some(label => currentLabels.has(label))) {
@@ -232,9 +233,7 @@ jobs:
                 }
               }
             }
-            async function recordThemePublicationDate() {
-              const { data: merged } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
-              if (!merged.merged_at) throw new Error('The theme submission has no merge date');
+            async function recordThemePublicationDate(merged) {
               const date = merged.merged_at.slice(0, 10);
               const themeId = pull.head.ref.slice('nzik/theme-'.length);
               const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -359,11 +358,11 @@ jobs:
                 }
               }
             }
-            async function announcePublication() {
-              if (isThemeSubmission) await recordThemePublicationDate();
+            async function announcePublication(merged) {
+              if (isThemeSubmission) await recordThemePublicationDate(merged);
               if (isWithdrawal) await deleteWithdrawnTheme();
               await status('merged');
-              if (!current.locked) {
+              if (!merged.locked) {
                 const marker = '<!-- nzik-submission-merged -->';
                 const comments = await github.paginate(github.rest.issues.listComments, target);
                 if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
@@ -408,9 +407,23 @@ jobs:
               if (currentLabels.has('accepted')) await github.rest.issues.removeLabel({ ...target, name: 'accepted' });
               core.notice('Catalog index repaired. Apply accepted again after the new commit passes validation.');
             }
+            async function finishPublication(confirmed) {
+              // The push can finish before GitHub updates the pull request metadata.
+              for (let attempt = 0; attempt < 12; attempt++) {
+                if (confirmed?.merged && confirmed.merged_at) {
+                  await announcePublication(confirmed);
+                  await cleanSubmissionBranch(pull.head.sha, true);
+                  return;
+                }
+                if (attempt < 11) {
+                  await new Promise(resolve => setTimeout(resolve, 5000));
+                  ({ data: confirmed } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number }));
+                }
+              }
+              throw new Error('GitHub has not confirmed the merge yet. Rerun this approval to finish publication.');
+            }
             if (current.merged) {
-              await announcePublication();
-              await cleanSubmissionBranch(pull.head.sha, true);
+              await finishPublication(current);
               return;
             }
             const { data } = await github.rest.repos.getContent({
@@ -500,16 +513,8 @@ jobs:
               const token = process.env.THEME_STORE_MERGE_TOKEN;
               if (!token) throw new Error('The GitHub workflow token is missing.');
               candidate.publishValidatedMerge(`Merge Theme Store submission #${pull.number}`, token);
-              await announcePublication();
-              // GitHub recognizes the PR as merged once its approved commit is reachable from main.
-              for (let attempt = 0; attempt < 6; attempt++) {
-                const { data: merged } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
-                if (merged.merged) {
-                  await cleanSubmissionBranch(pull.head.sha, true);
-                  break;
-                }
-                if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 2000));
-              }
+              const { data: confirmation } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+              await finishPublication(confirmation);
               return;
             }
             if (decision === 'ban' && !blocked) {

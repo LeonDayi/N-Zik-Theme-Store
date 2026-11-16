@@ -70,11 +70,19 @@ On GitHub, choose your own account and select only your **N-Zik-Theme-Store** fo
 
 [![Validate catalog](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/validate-catalog.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/validate-catalog.yml)
 
+[![CodeQL](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/github-code-scanning/codeql)
+
+[![GitHub Code Quality](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/github-code-quality/codeql/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/github-code-quality/codeql)
+
 Run `uv run --no-project --with-requirements requirements-validation.txt python .github/scripts/validate_catalog.py` from the repository root. It checks the schemas, index, example and indexed revisions, including matching IDs, duplicate entries or preview paths, and file hashes.
 
 ## 🔄 Automation & Maintenance
 
 [![Refresh contributor grid](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/readme-contributors.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/readme-contributors.yml)
+
+[![Dependabot Updates](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/dependabot/dependabot-updates)
+
+[![Dependency Graph](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/dependabot/update-graph)
 
 [![Triage issues](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/triage-issues.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/triage-issues.yml)
 

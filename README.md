@@ -13,6 +13,7 @@
 <div align="center">
 
 [![License: GPL v3](https://img.shields.io/github/license/N-Zik-Group/N-Zik-Theme-Store?style=flat&color=blue)](LICENSE)
+[![CodeFactor](https://www.codefactor.io/repository/github/n-zik-group/n-zik-theme-store/badge)](https://www.codefactor.io/repository/github/n-zik-group/n-zik-theme-store)
 
 </div>
 

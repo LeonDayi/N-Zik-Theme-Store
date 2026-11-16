@@ -377,13 +377,25 @@ class CatalogValidationTest(unittest.TestCase):
             for scene in catalog.BASE_SCENES for brightness in ("light", "dark") for variant in ("normal", "glass")
         ]
         manifest = {"schemaVersion": 2, "title": "Demo", "previews": previews}
-        catalog.validate_gallery(manifest, system=True)
+        catalog.validate_gallery(manifest, colors={"mode": "system"})
         previews[0]["role"] = "other"
         with self.assertRaisesRegex(ValueError, "incorrect preview role for player-light-normal"):
-            catalog.validate_gallery(manifest, system=True)
+            catalog.validate_gallery(manifest, colors={"mode": "system"})
         del previews[0]
         with self.assertRaisesRegex(ValueError, "missing previews: player-light-normal"):
-            catalog.validate_gallery(manifest, system=True)
+            catalog.validate_gallery(manifest, colors={"mode": "system"})
+
+    def test_v2_fixed_black_palettes_use_unqualified_previews_even_in_system_mode(self):
+        previews = [
+            {"path": f"previews/{scene}-{variant}.webp", "role": catalog.PREVIEW_ROLES.get(scene, "other")}
+            for scene in catalog.BASE_SCENES for variant in ("normal", "glass")
+        ]
+        manifest = {"schemaVersion": 2, "title": "Demo", "previews": previews}
+        for palette in ("pure-black", "modern-black"):
+            with self.subTest(palette=palette):
+                catalog.validate_gallery(manifest, colors={"mode": "system", "palette": palette})
+        with self.assertRaisesRegex(ValueError, "player-light-normal"):
+            catalog.validate_gallery(manifest, colors={"mode": "system", "palette": "default"})
 
     def test_v2_index_preview_limit_is_applied_to_manifest_gallery(self):
         theme_id = self.manifest["themeId"]

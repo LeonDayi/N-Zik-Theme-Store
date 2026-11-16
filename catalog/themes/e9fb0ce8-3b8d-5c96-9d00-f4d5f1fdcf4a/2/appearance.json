@@ -3,7 +3,7 @@
   "categories": {
     "colors": {
       "palette": "pure-black",
-      "mode": "system"
+      "mode": "dark"
     },
     "playerAndQueue": {
       "playerStyle": "modern",

@@ -71,6 +71,7 @@ V1 galleries accept up to 36 images.
 WebP is preferred for still images. Animated GIFs are also accepted.
 
 Name V1 and fixed-appearance V2 files `<screen>-normal.webp` and `<screen>-glass.webp`.
+The Pure Black and Modern Black palettes use the fixed dark gallery format.
 For V2 themes that follow system appearance, name files
 `<screen>-light-normal.webp`, `<screen>-light-glass.webp`,
 `<screen>-dark-normal.webp` and `<screen>-dark-glass.webp`.

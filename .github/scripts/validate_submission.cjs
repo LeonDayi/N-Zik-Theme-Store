@@ -9,6 +9,9 @@ const currentThemeIndexPath = 'catalog/themes/index-v2.json';
 const themeIndexPaths = [legacyThemeIndexPath, currentThemeIndexPath];
 const creatorIndexPath = 'catalog/creators/index.json';
 const minimumVersionCodeByAppearance = new Map([[1, 97], [2, 99]]);
+const fixedDarkPalettes = new Set(['pure-black', 'modern-black']);
+const baseScenes = ['player', 'queue', 'lyrics', 'home', 'navigation', 'album', 'artist',
+  'playlist', 'local-playlist', 'search', 'search-albums', 'search-artists'];
 const previewPath = /^previews\/[a-z0-9][a-z0-9_-]{0,79}\.(jpg|png|webp|gif)(?![\s\S])/;
 const creatorImage = /^[a-z0-9][a-z0-9_-]{0,63}\.(webp|png|jpg)(?![\s\S])/;
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -103,6 +106,12 @@ function themeSubmission(candidate, id, login, themeId) {
   for (const preview of manifest.previews) {
     assert(typeof preview.path === 'string' && previewPath.test(preview.path), 'Invalid preview path.');
     expected.add(directory + preview.path);
+  }
+  if (format === 2 && fixedDarkPalettes.has(appearance.categories?.colors?.palette)) {
+    const scenes = new Set(manifest.previews.map(preview => path.posix.basename(preview.path, path.posix.extname(preview.path))));
+    const missing = baseScenes.flatMap(scene => [`${scene}-normal`, `${scene}-glass`])
+      .filter(scene => !scenes.has(scene));
+    assert(!missing.length, `Fixed-dark gallery is missing previews: ${missing.join(', ')}.`);
   }
   const reviewsFile = directory + 'reviews.json';
   if (changes.some(file => file.filename === reviewsFile)) {

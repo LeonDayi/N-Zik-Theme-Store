@@ -38,7 +38,8 @@ function makeCandidate() {
 
 function themeFixture({ published = false, submittedOwner = id, publishedOwner = id, publishedLogin = login,
   compatibility = { minVersionCode: 97 }, appearanceVersion = 1, manifestVersion = appearanceVersion,
-  indexVersion = manifestVersion === 2 ? 2 : 1, previewCount = 1, previewLimit = 80, legacyOnly = false } = {}) {
+  indexVersion = manifestVersion === 2 ? 2 : 1, previewCount = 1, previewLimit = 80, legacyOnly = false,
+  categories = {}, scenes = Array.from({ length: previewCount }, (_, index) => `photo-${index}-normal`) } = {}) {
   const { candidate, put } = makeCandidate();
   const revision = published || legacyOnly ? 2 : 1;
   const manifestFile = `${themePath}${revision}/manifest.json`;
@@ -46,12 +47,12 @@ function themeFixture({ published = false, submittedOwner = id, publishedOwner =
   const previous = published || legacyOnly ? [{
     themeId, revision: 1, manifestSha256: put('base', `${themePath}1/manifest.json`, oldManifest),
   }] : [];
-  const previews = Array.from({ length: previewCount }, (_, index) => ({ path: `previews/photo-${index}-normal.webp` }));
+  const previews = scenes.map(scene => ({ path: `previews/${scene}.webp` }));
   const manifest = { schemaVersion: manifestVersion, themeId, revision, author: { githubId: submittedOwner, login },
     compatibility,
     appearance: { path: 'appearance.json' }, previews };
   const entry = { themeId, revision, manifestSha256: put('head', manifestFile, manifest) };
-  put('head', `${themePath}${revision}/appearance.json`, { schemaVersion: appearanceVersion, categories: {} });
+  put('head', `${themePath}${revision}/appearance.json`, { schemaVersion: appearanceVersion, categories });
   const reviewsFile = `${themePath}${revision}/reviews.json`;
   put('head', reviewsFile, { schemaVersion: 1, reviews: [] });
   const indexPath = indexVersion === 2 ? currentThemeIndex : themeIndex;
@@ -139,6 +140,22 @@ test('initial V2 publication of an existing V1 theme verifies the legacy revisio
   assert.throws(() => themeSubmission(otherOwner.candidate, id, login, themeId), /Only the owner/);
   put('base', themeIndex, { schemaVersion: 1, themes: [] });
   assert.throws(() => themeSubmission(candidate, id, login, themeId), /legacy theme changed on main/);
+});
+
+test('V2 Pure Black and Modern Black submissions use fixed dark previews even in System mode', () => {
+  const baseScenes = ['player', 'queue', 'lyrics', 'home', 'navigation', 'album', 'artist',
+    'playlist', 'local-playlist', 'search', 'search-albums', 'search-artists'];
+  const scenes = baseScenes.flatMap(scene => [`${scene}-normal`, `${scene}-glass`]);
+  for (const palette of ['pure-black', 'modern-black']) {
+    const options = { appearanceVersion: 2, compatibility: { minVersionCode: 99 },
+      categories: { colors: { palette, mode: 'system' } } };
+    const { candidate, entry } = themeFixture({ ...options, scenes });
+    assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
+    const brightnessNames = scenes.map(scene => scene.replace(/-(normal|glass)$/, '-dark-$1'));
+    const qualified = themeFixture({ ...options, scenes: brightnessNames });
+    assert.throws(() => themeSubmission(qualified.candidate, id, login, themeId),
+      /Fixed-dark gallery is missing previews: player-normal/);
+  }
 });
 
 test('theme approval rejects unrelated files and changes to existing revisions', () => {

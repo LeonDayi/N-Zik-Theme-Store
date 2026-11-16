@@ -139,6 +139,7 @@ def validate_theme(folder, manifest_validator, appearance_validators, *, publish
 BASE_SCENES = ("player", "queue", "lyrics", "home", "navigation", "album", "artist",
                "playlist", "local-playlist", "search", "search-albums", "search-artists")
 PREVIEW_ROLES = {"player": "player", "queue": "queue", "navigation": "navigation"}
+FIXED_DARK_PALETTES = {"pure-black", "modern-black"}
 
 
 def validate_reserved_tags(manifest, verified_ids):
@@ -159,8 +160,10 @@ def validate_publication_compatibility(manifest, appearance_version):
         raise ValueError(f"Published V1 themes cannot require an Android version code above {LEGACY_MAX_VERSION_CODE}")
 
 
-def validate_gallery(manifest, *, system=False):
-    system_gallery = manifest.get("schemaVersion") == 2 and system
+def validate_gallery(manifest, *, colors=None):
+    colors = colors or {}
+    system_gallery = (manifest.get("schemaVersion") == 2 and colors.get("mode", "system") == "system"
+                      and colors.get("palette") not in FIXED_DARK_PALETTES)
     previews = {}
     for preview in manifest["previews"]:
         stem = Path(preview["path"]).stem
@@ -288,8 +291,7 @@ def validate_theme_index(index_path, version, appearance_validators, verified_id
         manifest, appearance = validate_theme(folder, manifest_validator, appearance_validators, published=True)
         if version == 2 and len(manifest["previews"]) > catalog["previewLimit"]:
             raise ValueError(f"{manifest_path}: gallery exceeds the catalog previewLimit of {catalog['previewLimit']}")
-        system = appearance["categories"].get("colors", {}).get("mode", "system") == "system"
-        validate_gallery(manifest, system=system)
+        validate_gallery(manifest, colors=appearance["categories"].get("colors"))
         validate_reserved_tags(manifest, verified_ids)
         if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
             raise ValueError(f"{folder}: manifest ID or revision differs from the catalog")

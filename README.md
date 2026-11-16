@@ -18,9 +18,9 @@
 
 # 🎨 Browse themes
 
-The [catalog index](catalog/themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. Each published revision declares its own compatibility.
+The [V2 catalog](catalog/themes/index-v2.json) lists revisions for N-Zik Android version code 99 and later. The [V1 catalog](catalog/themes/index.json) lists revisions for codes 97–98. Each revision's manifest shows the author, included files and minimum compatible N-Zik version.
 
-**Theme Store is in Beta**, including in the stable N-Zik 8.7.0 app. The current built-in gallery revisions require Android version code **99 or later**. Older appearance V1 revisions retain their original compatibility. Earlier builds can browse the catalog and see the update requirement for V2.
+**Theme Store is in Beta**, including in the stable N-Zik 8.7.0 app. The V2 built-in gallery revisions require Android version code **99 or later**. Earlier builds continue to browse the V1 revisions.
 
 <div align="center">
 

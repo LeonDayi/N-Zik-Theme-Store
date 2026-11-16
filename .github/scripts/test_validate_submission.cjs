@@ -12,6 +12,7 @@ const login = 'Creator';
 const themeId = '9fabc1ee-37b1-4d82-8d3b-f7b141ceb831';
 const themePath = `catalog/themes/${themeId}/`;
 const themeIndex = 'catalog/themes/index.json';
+const currentThemeIndex = 'catalog/themes/index-v2.json';
 const profilePath = `catalog/creators/${id}/profile.json`;
 const creatorIndex = 'catalog/creators/index.json';
 const encode = value => Buffer.from(JSON.stringify(value));
@@ -36,27 +37,36 @@ function makeCandidate() {
 }
 
 function themeFixture({ published = false, submittedOwner = id, publishedOwner = id, publishedLogin = login,
-  compatibility = { minVersionCode: 97 }, appearanceVersion = 1 } = {}) {
+  compatibility = { minVersionCode: 97 }, appearanceVersion = 1, manifestVersion = appearanceVersion,
+  indexVersion = manifestVersion === 2 ? 2 : 1, previewCount = 1, previewLimit = 80, legacyOnly = false } = {}) {
   const { candidate, put } = makeCandidate();
-  const revision = published ? 2 : 1;
+  const revision = published || legacyOnly ? 2 : 1;
   const manifestFile = `${themePath}${revision}/manifest.json`;
   const oldManifest = { themeId, revision: 1, author: { githubId: publishedOwner, login: publishedLogin } };
-  const previous = published ? [{
+  const previous = published || legacyOnly ? [{
     themeId, revision: 1, manifestSha256: put('base', `${themePath}1/manifest.json`, oldManifest),
   }] : [];
-  const manifest = { themeId, revision, author: { githubId: submittedOwner, login },
+  const previews = Array.from({ length: previewCount }, (_, index) => ({ path: `previews/photo-${index}-normal.webp` }));
+  const manifest = { schemaVersion: manifestVersion, themeId, revision, author: { githubId: submittedOwner, login },
     compatibility,
-    appearance: { path: 'appearance.json' }, previews: [{ path: 'previews/player-normal.webp' }] };
+    appearance: { path: 'appearance.json' }, previews };
   const entry = { themeId, revision, manifestSha256: put('head', manifestFile, manifest) };
   put('head', `${themePath}${revision}/appearance.json`, { schemaVersion: appearanceVersion, categories: {} });
   const reviewsFile = `${themePath}${revision}/reviews.json`;
   put('head', reviewsFile, { schemaVersion: 1, reviews: [] });
-  put('ancestor', themeIndex, { schemaVersion: 1, themes: previous });
-  put('base', themeIndex, { schemaVersion: 1, themes: previous });
-  put('head', themeIndex, { schemaVersion: 1, themes: [entry] });
+  const indexPath = indexVersion === 2 ? currentThemeIndex : themeIndex;
+  const index = { schemaVersion: 1, ...(indexVersion === 2 && { previewLimit, legacyMaxVersionCode: 98 }) };
+  put('ancestor', indexPath, { ...index, themes: legacyOnly ? [] : previous });
+  put('base', indexPath, { ...index, themes: legacyOnly ? [] : previous });
+  put('head', indexPath, { ...index, themes: [entry] });
+  if (indexVersion === 2) {
+    for (const ref of ['ancestor', 'base']) {
+      put(ref, themeIndex, { schemaVersion: 1, themes: legacyOnly ? previous : [] });
+    }
+  }
   candidate.changes = [
-    file(themeIndex, 'modified'), file(manifestFile), file(`${themePath}${revision}/appearance.json`),
-    file(`${themePath}${revision}/previews/player-normal.webp`), file(reviewsFile),
+    file(indexPath, 'modified'), file(manifestFile), file(`${themePath}${revision}/appearance.json`),
+    ...previews.map(preview => file(`${themePath}${revision}/${preview.path}`)), file(reviewsFile),
   ];
   return { candidate, put, entry };
 }
@@ -74,7 +84,7 @@ test('an updated theme uses the authenticated current login after a GitHub renam
   assert.throws(() => themeSubmission(candidate, id, 'Previous-Creator', themeId), /author/);
 });
 
-test('theme publication requires Android code 97 or later even when updating a legacy theme', () => {
+test('V1 theme publication requires Android code 97 or 98', () => {
   for (const published of [false, true]) {
     for (const compatibility of [null, {}, { minVersionCode: null }, { minVersionCode: 96 }, { minVersionCode: '97' }]) {
       const { candidate } = themeFixture({ published, compatibility });
@@ -84,6 +94,8 @@ test('theme publication requires Android code 97 or later even when updating a l
       const { candidate, entry } = themeFixture({ published, compatibility: { minVersionCode } });
       assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
     }
+    const tooNew = themeFixture({ published, compatibility: { minVersionCode: 99 } });
+    assert.throws(() => themeSubmission(tooNew.candidate, id, login, themeId), /above 98/);
   }
 });
 
@@ -103,6 +115,30 @@ test('appearance v2 publication requires Android code 99 or later', () => {
 test('theme publication rejects an unsupported appearance version', () => {
   const { candidate } = themeFixture({ appearanceVersion: 3 });
   assert.throws(() => themeSubmission(candidate, id, login, themeId), /Unsupported appearance schema version/);
+});
+
+test('theme publication enforces the selected index and its trusted preview limit', () => {
+  const options = { appearanceVersion: 2, compatibility: { minVersionCode: 99 }, previewLimit: 72 };
+  assert.throws(() => themeSubmission(themeFixture({ ...options, indexVersion: 1 }).candidate, id, login, themeId),
+    /versions must match the catalog index/);
+  const { candidate, entry, put } = themeFixture({ ...options, previewCount: 72 });
+  assert.deepEqual(themeSubmission(candidate, id, login, themeId),
+    { entry, indexPath: currentThemeIndex, index: { schemaVersion: 1, previewLimit: 72, legacyMaxVersionCode: 98, themes: [entry] } });
+  put('head', currentThemeIndex, { schemaVersion: 1, previewLimit: 80, legacyMaxVersionCode: 98, themes: [entry] });
+  assert.throws(() => themeSubmission(candidate, id, login, themeId), /changes other index entries/);
+  const overflow = themeFixture({ ...options, previewCount: 73 });
+  assert.throws(() => themeSubmission(overflow.candidate, id, login, themeId), /at most 72 previews/);
+});
+
+test('initial V2 publication of an existing V1 theme verifies the legacy revision and owner', () => {
+  const options = { legacyOnly: true, appearanceVersion: 2, compatibility: { minVersionCode: 99 } };
+  const { candidate, entry, put } = themeFixture(options);
+  assert.equal(entry.revision, 2);
+  assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
+  const otherOwner = themeFixture({ ...options, publishedOwner: id + 1 });
+  assert.throws(() => themeSubmission(otherOwner.candidate, id, login, themeId), /Only the owner/);
+  put('base', themeIndex, { schemaVersion: 1, themes: [] });
+  assert.throws(() => themeSubmission(candidate, id, login, themeId), /legacy theme changed on main/);
 });
 
 test('theme approval rejects unrelated files and changes to existing revisions', () => {
@@ -223,7 +259,7 @@ test('trusted checkout validates merged data for the exact approved PR head', t 
   assert.equal(run('rev-parse', merged + '^2'), head);
 });
 
-test('a repaired index validates and publishes current main without writing its workflows into the fork', t => {
+test('a repaired V2 index publishes a gallery above the V1 file limit without writing main workflows into the fork', t => {
   const temporaryRoot = path.resolve(os.tmpdir());
   const root = fs.mkdtempSync(path.join(temporaryRoot, 'nzik-repaired-submission-'));
   t.after(() => {
@@ -240,26 +276,31 @@ test('a repaired index validates and publishes current main without writing its 
   git('config', 'user.email', 'test@example.com');
   git('config', 'core.autocrlf', 'false');
   git('remote', 'add', 'origin', '.');
+  const index = themes => ({ schemaVersion: 1, previewLimit: 80, legacyMaxVersionCode: 98, themes });
   put('.github/scripts/validate_catalog.py', [
     'import json', 'from pathlib import Path',
-    'index = json.loads(Path("catalog/themes/index.json").read_text())',
-    'assert index == {"schemaVersion": 1, "themes": ["main", "submission"]}',
+    'index = json.loads(Path("catalog/themes/index-v2.json").read_text())',
+    'assert index == {"schemaVersion": 1, "previewLimit": 80, "legacyMaxVersionCode": 98, "themes": ["main", "submission"]}',
     'assert Path("catalog/themes/submission.json").read_text() == "checked data"',
+    'assert len(list(Path("catalog/themes/test-previews").glob("*.webp"))) == 39',
     'assert Path(".github/workflows/test.yml").read_text() == "current trusted workflow"',
   ].join('\n'));
   put('.github/workflows/test.yml', 'old workflow already in the fork');
-  put(themeIndex, JSON.stringify({ schemaVersion: 1, themes: [] }));
+  put(currentThemeIndex, JSON.stringify(index([])));
   git('add', '.');
   git('commit', '-qm', 'Shared ancestor');
   const ancestor = git('rev-parse', 'HEAD');
-  put(themeIndex, JSON.stringify({ schemaVersion: 1, themes: ['submission'] }));
+  put(currentThemeIndex, JSON.stringify(index(['submission'])));
   put('catalog/themes/submission.json', 'checked data');
+  for (let preview = 1; preview <= 39; preview++) {
+    put(`catalog/themes/test-previews/photo-${preview}.webp`, 'checked preview');
+  }
   git('add', '.');
   git('commit', '-qm', 'Accepted fork submission');
   const head = git('rev-parse', 'HEAD');
   git('update-ref', 'refs/pull/4/head', head);
   git('checkout', '--detach', '-q', ancestor);
-  put(themeIndex, JSON.stringify({ schemaVersion: 1, themes: ['main'] }));
+  put(currentThemeIndex, JSON.stringify(index(['main'])));
   put('.github/workflows/test.yml', 'current trusted workflow');
   git('add', '.');
   git('commit', '-qm', 'Concurrent main publication and workflow update');
@@ -267,9 +308,9 @@ test('a repaired index validates and publishes current main without writing its 
   git('update-ref', 'refs/heads/main', base);
   const candidate = trustedCandidate(root, { number: 4, base: { sha: base }, head: { sha: head } });
   assert.equal(candidate.mergeTree(), null);
-  assert.throws(() => candidate.validateRepairedIndex({ schemaVersion: 1, themes: ['submission'] }));
+  assert.throws(() => candidate.validateRepairedIndex(index(['submission']), currentThemeIndex));
   assert.throws(() => candidate.publishValidatedMerge('Invalid repair'), /must pass/);
-  candidate.validateRepairedIndex({ schemaVersion: 1, themes: ['main', 'submission'] });
+  candidate.validateRepairedIndex(index(['main', 'submission']), currentThemeIndex);
   const merged = candidate.publishValidatedMerge('Validated index repair');
   assert.equal(git('rev-parse', merged + '^1'), base);
   assert.equal(git('rev-parse', merged + '^2'), head);
@@ -285,7 +326,7 @@ test('a repaired index validates and publishes current main without writing its 
   git('commit', '-qm', 'Independent conflicting file on main');
   const conflictingBase = git('rev-parse', 'HEAD');
   const conflicting = trustedCandidate(root, { number: 4, base: { sha: conflictingBase }, head: { sha: head } });
-  assert.throws(() => conflicting.validateRepairedIndex({ schemaVersion: 1, themes: ['main', 'submission'] }),
+  assert.throws(() => conflicting.validateRepairedIndex(index(['main', 'submission']), currentThemeIndex),
     /cannot replace a conflicting file added to main/);
   assert.throws(() => conflicting.publishValidatedMerge('Unvalidated conflicting repair'), /must pass/);
 });

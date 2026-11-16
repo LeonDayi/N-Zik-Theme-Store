@@ -34,7 +34,9 @@ class CatalogValidationTest(unittest.TestCase):
 
     def validate_theme(self, *, published=False):
         appearances = {version: catalog.load_schema("appearance", version) for version in (1, 2)}
-        return catalog.validate_theme(self.folder, catalog.load_schema("theme"), appearances, published=published)
+        return catalog.validate_theme(
+            self.folder, catalog.load_schema("theme", self.manifest["schemaVersion"]), appearances, published=published
+        )
 
     def write_theme(self, appearance=None):
         appearance = self.appearance if appearance is None else appearance
@@ -68,9 +70,14 @@ class CatalogValidationTest(unittest.TestCase):
         del self.manifest["compatibility"]
         with self.assertRaisesRegex(ValueError, "version code 97"):
             catalog.validate_publication_compatibility(self.manifest, 1)
+        self.manifest["compatibility"] = {"minVersionCode": 99}
+        self.assertTrue(validator.is_valid(self.manifest))
+        with self.assertRaisesRegex(ValueError, "above 98"):
+            catalog.validate_publication_compatibility(self.manifest, 1)
 
     def test_v2_appearance_selects_android_code_99_at_publication(self):
         appearance = b'{"schemaVersion": 2, "categories": {"colors": {"palette": "dynamic", "mode": "system"}}}'
+        self.manifest["schemaVersion"] = 2
         for minimum in (None, 97, 98, 99, 100):
             with self.subTest(minimum=minimum):
                 self.manifest["compatibility"]["minVersionCode"] = minimum
@@ -209,6 +216,9 @@ class CatalogValidationTest(unittest.TestCase):
             "revision": 1,
             "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
         }]})
+        self.write_json(theme_root / "index-v2.json", {
+            "schemaVersion": 1, "previewLimit": 80, "legacyMaxVersionCode": 98, "themes": [],
+        })
         with patch.object(catalog, "CATALOG", catalog_root):
             catalog.main()
             for minimum in (96, None):
@@ -359,6 +369,51 @@ class CatalogValidationTest(unittest.TestCase):
             catalog.validate_gallery(manifest)
         previews.append({"path": "previews/player-playing-glass.webp", "role": "other"})
         catalog.validate_gallery(manifest)
+
+    def test_v2_system_gallery_validates_both_brightnesses_and_roles(self):
+        previews = [
+            {"path": f"previews/{scene}-{brightness}-{variant}.webp",
+             "role": catalog.PREVIEW_ROLES.get(scene, "other")}
+            for scene in catalog.BASE_SCENES for brightness in ("light", "dark") for variant in ("normal", "glass")
+        ]
+        manifest = {"schemaVersion": 2, "title": "Demo", "previews": previews}
+        catalog.validate_gallery(manifest, system=True)
+        previews[0]["role"] = "other"
+        with self.assertRaisesRegex(ValueError, "incorrect preview role for player-light-normal"):
+            catalog.validate_gallery(manifest, system=True)
+        del previews[0]
+        with self.assertRaisesRegex(ValueError, "missing previews: player-light-normal"):
+            catalog.validate_gallery(manifest, system=True)
+
+    def test_v2_index_preview_limit_is_applied_to_manifest_gallery(self):
+        theme_id = self.manifest["themeId"]
+        directory = self.folder / theme_id / "1"
+        (directory / "previews").mkdir(parents=True)
+        image = self.image_bytes("WEBP")
+        image_hash = hashlib.sha256(image).hexdigest()
+        names = [(f"{scene}-{variant}", catalog.PREVIEW_ROLES.get(scene, "other"))
+                 for scene in catalog.BASE_SCENES for variant in ("normal", "glass")]
+        names.extend((f"extra-{i}-normal", "other") for i in range(65 - len(names)))
+        previews = []
+        for name, role in names:
+            path = f"previews/{name}.webp"
+            (directory / path).write_bytes(image)
+            previews.append({"path": path, "role": role, "sha256": image_hash})
+        appearance = b'{"schemaVersion": 2, "categories": {"colors": {"palette": "dynamic", "mode": "light"}}}'
+        (directory / "appearance.json").write_bytes(appearance)
+        self.manifest.update(schemaVersion=2, previews=previews, compatibility={"minVersionCode": 99})
+        self.manifest["appearance"]["sha256"] = hashlib.sha256(appearance).hexdigest()
+        manifest_path = self.write_json(directory / "manifest.json", self.manifest)
+        index = {"schemaVersion": 1, "previewLimit": 65, "legacyMaxVersionCode": 98, "themes": [{
+            "themeId": theme_id, "revision": 1, "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        }]}
+        path = self.write_json("index-v2.json", index)
+        appearances = {version: catalog.load_schema("appearance", version) for version in (1, 2)}
+        self.assertEqual(catalog.validate_theme_index(path, 2, appearances, set()), {theme_id})
+        index["previewLimit"] = 64
+        self.write_json(path, index)
+        with self.assertRaisesRegex(ValueError, "exceeds the catalog previewLimit of 64"):
+            catalog.validate_theme_index(path, 2, appearances, set())
 
     def test_empty_files_are_rejected_even_with_matching_hash(self):
         path = self.folder / "empty.webp"

@@ -18,6 +18,7 @@ PREVIEW_LIMIT = 4 * 1024 * 1024
 CATALOG_SNAPSHOT_LIMIT = 16 * 1024 * 1024
 DEMO_INDEX_LIMIT = 8 * 1024
 MINIMUM_PUBLISHED_VERSION_CODES = {1: 97, 2: 99}
+LEGACY_MAX_VERSION_CODE = MINIMUM_PUBLISHED_VERSION_CODES[2] - 1
 
 
 def validate_metadata_const(validator, expected, value, schema):
@@ -121,6 +122,8 @@ def validate_theme(folder, manifest_validator, appearance_validators, *, publish
         raise ValueError(f"{appearance_path}: unsupported appearance schemaVersion {version!r}")
     validate_document(appearance_path, document, appearance_validators[version])
     if published:
+        if version != manifest["schemaVersion"]:
+            raise ValueError(f"{appearance_path}: manifest and appearance schema versions must match")
         validate_publication_compatibility(manifest, version)
 
     preview_paths = set()
@@ -130,7 +133,7 @@ def validate_theme(folder, manifest_validator, appearance_validators, *, publish
             raise ValueError(f"{folder}: duplicate preview {path}")
         preview_paths.add(path)
         validate_image(folder / path, preview["sha256"])
-    return manifest
+    return manifest, document
 
 
 BASE_SCENES = ("player", "queue", "lyrics", "home", "navigation", "album", "artist",
@@ -152,9 +155,12 @@ def validate_publication_compatibility(manifest, appearance_version):
     minimum = (manifest.get("compatibility") or {}).get("minVersionCode")
     if type(minimum) is not int or minimum < required_version_code:
         raise ValueError(f"Published themes must require Android version code {required_version_code} or later")
+    if appearance_version == 1 and minimum > LEGACY_MAX_VERSION_CODE:
+        raise ValueError(f"Published V1 themes cannot require an Android version code above {LEGACY_MAX_VERSION_CODE}")
 
 
-def validate_gallery(manifest):
+def validate_gallery(manifest, *, system=False):
+    system_gallery = manifest.get("schemaVersion") == 2 and system
     previews = {}
     for preview in manifest["previews"]:
         stem = Path(preview["path"]).stem
@@ -163,18 +169,26 @@ def validate_gallery(manifest):
             raise ValueError(f'{manifest["title"]}: name previews <screen>-normal or <screen>-glass')
         if stem in previews:
             raise ValueError(f'{manifest["title"]}: duplicate preview variant {stem}')
+        base_scene, _, brightness = scene.rpartition("-")
+        if system_gallery and brightness in {"light", "dark"}:
+            scene = base_scene
         if preview["role"] != PREVIEW_ROLES.get(scene, "other"):
             raise ValueError(f'{manifest["title"]}: incorrect preview role for {stem}')
         previews[stem] = preview
-    missing = [f"{scene}-{variant}" for scene in BASE_SCENES
-               for variant in ("normal", "glass") if f"{scene}-{variant}" not in previews]
+    suffixes = ("-light", "-dark") if system_gallery else ("",)
+    missing = [f"{scene}{suffix}-{variant}" for scene in BASE_SCENES for suffix in suffixes
+               for variant in ("normal", "glass") if f"{scene}{suffix}-{variant}" not in previews]
     if missing:
         raise ValueError(f'{manifest["title"]}: missing previews: {", ".join(missing)}')
-    for scene in ("player-playing", "miniplayer-playing"):
-        normal, glass = f"{scene}-normal", f"{scene}-glass"
-        if (normal in previews) != (glass in previews):
-            missing_variant = glass if normal in previews else normal
-            raise ValueError(f'{manifest["title"]}: missing preview counterpart {missing_variant}')
+    paired_scenes = ("player-playing", "miniplayer-playing")
+    if manifest.get("schemaVersion") == 2:
+        paired_scenes += ("menu", "dialog")
+    for scene in paired_scenes:
+        names = [f"{scene}{suffix}-{variant}" for suffix in suffixes for variant in ("normal", "glass")]
+        if any(name in previews for name in names):
+            for name in names:
+                if name not in previews:
+                    raise ValueError(f'{manifest["title"]}: missing preview counterpart {name}')
 
 
 def validate_reviews(folder, validator):
@@ -256,11 +270,37 @@ def validate_demo_assets():
     validate_assets(visuals["banners"], banners)
 
 
+def validate_theme_index(index_path, version, appearance_validators, verified_ids):
+    catalog = validate_json(index_path, load_schema("catalog", version))
+    manifest_validator = load_schema("theme", version)
+    theme_ids = set()
+    manifest_paths = []
+    for entry in catalog["themes"]:
+        theme_id = entry["themeId"]
+        revision = entry["revision"]
+        if theme_id in theme_ids:
+            raise ValueError(f"{index_path}: duplicate theme ID {theme_id}")
+        theme_ids.add(theme_id)
+        folder = index_path.parent / theme_id / str(revision)
+        manifest_path = folder / "manifest.json"
+        manifest_paths.append(manifest_path)
+        check_hash(manifest_path, entry["manifestSha256"])
+        manifest, appearance = validate_theme(folder, manifest_validator, appearance_validators, published=True)
+        if version == 2 and len(manifest["previews"]) > catalog["previewLimit"]:
+            raise ValueError(f"{manifest_path}: gallery exceeds the catalog previewLimit of {catalog['previewLimit']}")
+        system = appearance["categories"].get("colors", {}).get("mode", "system") == "system"
+        validate_gallery(manifest, system=system)
+        validate_reserved_tags(manifest, verified_ids)
+        if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
+            raise ValueError(f"{folder}: manifest ID or revision differs from the catalog")
+    validate_snapshot(index_path, manifest_paths)
+    return theme_ids
+
+
 def main():
     validate_demo_assets()
     manifest_validator = load_schema("theme")
     appearance_validators = {version: load_schema("appearance", version) for version in MINIMUM_PUBLISHED_VERSION_CODES}
-    catalog = validate_json(CATALOG / "themes" / "index.json", load_schema("catalog"))
     reviews_validator = load_schema("reviews")
     creator_validator = load_schema("creator")
     official = validate_json(CATALOG / "creators" / "verified.json", load_schema("verified-creators"))
@@ -287,31 +327,17 @@ def main():
     validate_theme(example, manifest_validator, appearance_validators)
     validate_reviews(example, reviews_validator)
 
-    theme_ids = set()
-    manifest_paths = []
-    for entry in catalog["themes"]:
-        theme_id = entry["themeId"]
-        revision = entry["revision"]
-        if theme_id in theme_ids:
-            raise ValueError(f"catalog: duplicate theme ID {theme_id}")
-        theme_ids.add(theme_id)
-        folder = CATALOG / "themes" / theme_id / str(revision)
-        manifest_paths.append(folder / "manifest.json")
-        check_hash(folder / "manifest.json", entry["manifestSha256"])
-        manifest = validate_theme(folder, manifest_validator, appearance_validators, published=True)
-        validate_gallery(manifest)
-        validate_reserved_tags(manifest, verified_ids)
-        if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
-            raise ValueError(f"{folder}: manifest ID or revision differs from the catalog")
-
-    validate_snapshot(CATALOG / "themes" / "index.json", manifest_paths)
+    themes = CATALOG / "themes"
+    legacy_theme_ids = validate_theme_index(themes / "index.json", 1, appearance_validators, verified_ids)
+    current_theme_ids = validate_theme_index(themes / "index-v2.json", 2, appearance_validators, verified_ids)
 
     for reviews in (CATALOG / "themes").glob("*/*/reviews.json"):
         if not (reviews.parent / "manifest.json").is_file():
             raise ValueError(f"{reviews}: missing revision manifest")
         validate_reviews(reviews.parent, reviews_validator)
 
-    print(f"Validated the schemas, examples, {len(theme_ids)} published themes and {len(creator_ids)} creators.")
+    print(f"Validated the schemas, examples, {len(legacy_theme_ids)} V1 and {len(current_theme_ids)} V2 theme listings, "
+          f"and {len(creator_ids)} creators.")
 
 
 if __name__ == "__main__":

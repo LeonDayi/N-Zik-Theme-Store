@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
 
-const themeIndexPath = 'catalog/themes/index.json';
+const legacyThemeIndexPath = 'catalog/themes/index.json';
+const currentThemeIndexPath = 'catalog/themes/index-v2.json';
+const themeIndexPaths = [legacyThemeIndexPath, currentThemeIndexPath];
 const creatorIndexPath = 'catalog/creators/index.json';
 const minimumVersionCodeByAppearance = new Map([[1, 97], [2, 99]]);
 const previewPath = /^previews\/[a-z0-9][a-z0-9_-]{0,79}\.(jpg|png|webp|gif)(?![\s\S])/;
@@ -13,6 +15,12 @@ const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function catalogPreviewLimit(index) {
+  const limit = index.previewLimit;
+  assert(Number.isSafeInteger(limit) && limit >= 64 && limit <= 128, 'Invalid catalog preview limit.');
+  return limit;
 }
 
 function matchIndex(ancestor, submitted, key, identifies) {
@@ -41,6 +49,11 @@ function readProfileImages(profile, directory) {
 function themeSubmission(candidate, id, login, themeId) {
   const identifies = row => row.themeId === themeId;
   const { ancestor, base, head, changes, read } = candidate;
+  const changedIndexes = changes.filter(file => themeIndexPaths.includes(file.filename));
+  assert(changedIndexes.length === 1 && changedIndexes[0].status === 'modified',
+    'A theme submission must update exactly one catalog index.');
+  const themeIndexPath = changedIndexes[0].filename;
+  const format = themeIndexPath === currentThemeIndexPath ? 2 : 1;
   const previousIndex = JSON.parse(read(ancestor, themeIndexPath));
   const currentIndex = JSON.parse(read(base, themeIndexPath));
   const submittedIndex = JSON.parse(read(head, themeIndexPath));
@@ -48,15 +61,21 @@ function themeSubmission(candidate, id, login, themeId) {
   const current = currentIndex.themes.find(identifies);
   const entry = matchIndex(previousIndex, submittedIndex, 'themes', identifies);
   assert(isDeepStrictEqual(previous, current), 'The theme changed on main. Resubmit the next revision from N-Zik.');
-  assert(Number.isSafeInteger(entry.revision) && entry.revision === (current?.revision ?? 0) + 1,
+  let predecessor = current;
+  if (format === 2 && !predecessor) {
+    const previousLegacy = JSON.parse(read(ancestor, legacyThemeIndexPath)).themes.find(identifies);
+    predecessor = JSON.parse(read(base, legacyThemeIndexPath)).themes.find(identifies);
+    assert(isDeepStrictEqual(previousLegacy, predecessor), 'The legacy theme changed on main. Resubmit from N-Zik.');
+  }
+  assert(Number.isSafeInteger(entry.revision) && entry.revision === (predecessor?.revision ?? 0) + 1,
     'A theme submission must add exactly its next revision.');
   const prefix = `catalog/themes/${themeId}/`;
   const directory = `${prefix}${entry.revision}/`;
-  if (current) {
-    const bytes = read(base, `${prefix}${current.revision}/manifest.json`);
+  if (predecessor) {
+    const bytes = read(base, `${prefix}${predecessor.revision}/manifest.json`);
     const published = JSON.parse(bytes);
-    assert(sha256(bytes) === current.manifestSha256 && published.themeId === themeId &&
-      published.revision === current.revision && published.author?.githubId === id,
+    assert(sha256(bytes) === predecessor.manifestSha256 && published.themeId === themeId &&
+      published.revision === predecessor.revision && published.author?.githubId === id,
     'Only the owner of the published theme may submit an update.');
   }
   const manifestFile = directory + 'manifest.json';
@@ -70,9 +89,16 @@ function themeSubmission(candidate, id, login, themeId) {
   const appearance = JSON.parse(read(head, appearanceFile));
   const minimumPublishedVersionCode = minimumVersionCodeByAppearance.get(appearance?.schemaVersion);
   assert(minimumPublishedVersionCode !== undefined, 'Unsupported appearance schema version.');
+  assert(manifest.schemaVersion === format && appearance.schemaVersion === format,
+    'The manifest and appearance versions must match the catalog index.');
   assert(Number.isSafeInteger(manifest.compatibility?.minVersionCode) &&
     manifest.compatibility.minVersionCode >= minimumPublishedVersionCode,
   `Published themes must require Android version code ${minimumPublishedVersionCode} or later.`);
+  const legacyMaxVersionCode = minimumVersionCodeByAppearance.get(2) - 1;
+  assert(format !== 1 || manifest.compatibility.minVersionCode <= legacyMaxVersionCode,
+    `Published V1 themes cannot require an Android version code above ${legacyMaxVersionCode}.`);
+  const previewLimit = format === 2 ? catalogPreviewLimit(currentIndex) : 36;
+  assert(manifest.previews.length <= previewLimit, `The catalog allows at most ${previewLimit} previews.`);
   const expected = new Set([manifestFile, appearanceFile]);
   for (const preview of manifest.previews) {
     assert(typeof preview.path === 'string' && previewPath.test(preview.path), 'Invalid preview path.');
@@ -89,7 +115,8 @@ function themeSubmission(candidate, id, login, themeId) {
     changes.some(file => file.filename === themeIndexPath && file.status === 'modified') &&
     changes.every(file => file.filename === themeIndexPath || file.status === 'added' && expected.has(file.filename)),
   'A theme submission may only change the index and add the files of the submitted revision.');
-  return { entry, index: { ...currentIndex, themes: [...currentIndex.themes.filter(row => !identifies(row)), entry] } };
+  return { entry, indexPath: themeIndexPath,
+    index: { ...currentIndex, themes: [...currentIndex.themes.filter(row => !identifies(row)), entry] } };
 }
 
 function creatorSubmission(candidate, id, login) {
@@ -167,7 +194,10 @@ function trustedCandidate(root, current) {
     return changes;
   }
   const changes = diff(ancestor, head.sha);
-  assert(changes.length > 0 && changes.length <= 40, 'Unexpected submission file count.');
+  const fileLimit = changes.some(file => file.filename === currentThemeIndexPath)
+    ? catalogPreviewLimit(JSON.parse(read(base.sha, currentThemeIndexPath))) + 4
+    : 40;
+  assert(changes.length > 0 && changes.length <= fileLimit, 'Unexpected submission file count.');
   function blob(filename) {
     read(head.sha, filename);
     return revision('rev-parse', `${head.sha}:${filename}`);
@@ -233,12 +263,18 @@ function trustedCandidate(root, current) {
         'origin', `${commit}:refs/heads/main`], { env: pushEnv });
       return commit;
     },
-    validateRepairedIndex(index, indexPath = themeIndexPath) {
-      // Resolve only the owner-checked index against trusted main. Publishing this
+    validateRepairedIndex(index, indexPath = legacyThemeIndexPath) {
+      this.validateRepairedIndexes(new Map([[indexPath, index]]));
+    },
+    validateRepairedIndexes(indexes) {
+      // Resolve only owner-checked indexes against trusted main. Publishing this
       // tree upstream avoids importing unrelated workflow changes into the fork.
-      assert([themeIndexPath, creatorIndexPath].includes(indexPath) &&
-        changes.some(file => file.filename === indexPath && file.status === 'modified') &&
-        (indexPath === creatorIndexPath || changes.every(file => file.filename === indexPath || file.status === 'added')),
+      const indexPaths = [...indexes.keys()];
+      assert(indexPaths.length > 0 && indexPaths.every(indexPath =>
+        [...themeIndexPaths, creatorIndexPath].includes(indexPath) &&
+        changes.some(file => file.filename === indexPath && file.status === 'modified')) &&
+        (indexes.has(creatorIndexPath) ? indexes.size === 1 : changes.every(file =>
+          indexes.has(file.filename) || (indexes.size === 1 && file.status === 'added'))),
       'Index repair requires an owner-checked theme or creator submission.');
       const temporaryRoot = path.resolve(require('node:os').tmpdir());
       const directory = fs.mkdtempSync(path.join(temporaryRoot, 'nzik-candidate-index-'));
@@ -247,7 +283,7 @@ function trustedCandidate(root, current) {
       try {
         indexed('read-tree', base.sha);
         for (const file of changes) {
-          if (file.filename !== indexPath) {
+          if (!indexes.has(file.filename)) {
             const existing = revision('ls-tree', base.sha, '--', file.filename);
             const previous = revision('ls-tree', ancestor, '--', file.filename);
             const submitted = file.status === 'removed' ? '' : `100644 blob ${blob(file.filename)}\t${file.filename}`;
@@ -258,9 +294,9 @@ function trustedCandidate(root, current) {
             indexed('update-index', '--force-remove', '--', file.filename);
             continue;
           }
-          const sha = file.filename === indexPath
+          const sha = indexes.has(file.filename)
             ? run('git', ['hash-object', '-w', '--stdin'], {
-              input: Buffer.from(JSON.stringify(index, null, 2) + '\n'),
+              input: Buffer.from(JSON.stringify(indexes.get(file.filename), null, 2) + '\n'),
             }).toString('utf8').trim()
             : blob(file.filename);
           indexed('update-index', '--add', '--cacheinfo', '100644', sha, file.filename);

@@ -2,8 +2,8 @@
 
 ## 📦 Repository layout
 
-- [catalog/themes/index.json](../../catalog/themes/index.json) lists the revisions available for download.
-- [catalog/schemas/v1/](../../catalog/schemas/v1/) defines the catalog index, theme manifest and V1 appearance payload in JSON Schema Draft 2020-12. [The V2 appearance schema](../../catalog/schemas/v2/appearance.schema.json) defines the updated player settings.
+- [The V2 index](../../catalog/themes/index-v2.json) lists revisions for Android version code 99 and later. [The V1 index](../../catalog/themes/index.json) lists revisions for codes 97–98.
+- [The V1 schemas](../../catalog/schemas/v1/) and [V2 schemas](../../catalog/schemas/v2/) define the indexes, manifests and appearance payloads in JSON Schema Draft 2020-12.
 - [theme-v1/](theme-v1/) contains a sample manifest and configuration for validation.
 
 Published revisions use this layout:
@@ -29,8 +29,8 @@ revision and Android version codes fit a positive signed 32-bit integer.
 
 ## Catalog and manifest
 
-- `schemaVersion` selects the format. `themeId` is a permanent lowercase UUID independent of the theme title. Community updates increment `revision` and use a new directory. Maintainer corrections to the initial Beta catalog may update revision 1 and its index hash together, as in the code 97 compatibility rollout. The catalog lists one current revision per theme. To withdraw a theme, remove its index entry.
-- `compatibility.minVersionCode` is the minimum Android version code that supports the theme. The catalog index and theme manifest use `schemaVersion: 1` with either appearance version. V1 appearance publication requires Android version code **97** or higher. V2 appearance publication requires Android version code **99** or higher. The manifest schema preserves lower codes and `null` for reading legacy packages. A legacy `null` value marks pending compatibility and must disable applying that revision.
+- `schemaVersion` selects the format. Both indexes use `schemaVersion: 1`. The manifest and appearance use the same schema version, either 1 or 2. `themeId` is a permanent lowercase UUID independent of the theme title. Community updates increment `revision` and use a new directory. Each index lists one revision per theme. Withdrawal removes the theme from every index that lists it.
+- `compatibility.minVersionCode` is the minimum Android version code that supports the theme. V1 publication accepts codes 97–98. V2 publication requires code 99 or higher. The V2 index declares `legacyMaxVersionCode: 98` so earlier clients can continue reading the V1 index and manifests with their existing format. A legacy `null` value marks pending compatibility and must disable applying that revision.
 - The appearance payload contains a closed set of categories for colors, player and queue, navigation, and Glass. Applying a theme writes only the fields present in the selected categories. Missing optional fields and missing or unchecked categories leave the corresponding settings untouched. The preview uses N-Zik defaults for settings the theme omits.
 - The schema accepts only the declared appearance fields. Colors includes optional custom accents and light and dark palettes. Player and queue includes optional lyrics appearance, mini-player controls and order, visualizer styles, artwork settings and player controls. Navigation includes optional home tabs and sections, toolbar and sort menu layouts, swipe actions, corner radii, item sizes, search layouts, and floating control offsets. Floating offsets are stored in Android pixels and clamped to the destination screen. Glass includes optional optics, interaction feedback, surface modes and destination overrides. Accounts, library data, audio files, custom fonts and file paths have no representation in the payload.
 - The numeric GitHub user ID identifies the author. Published revisions retain the login recorded when they were submitted, so it can differ from the creator's current login. Check ownership against the authenticated GitHub account when processing a submission. The manifest alone cannot establish ownership.
@@ -46,7 +46,7 @@ When converting a V1 appearance, remove the `video` property from `playerAndQueu
 
 The first six catalog entries follow the order of the original preset chooser in [N-Zik at `1013c849fb`](https://github.com/N-Zik-Group/N-Zik/tree/1013c849fb66e3a8c9fb200eede3d5600a16d234). The built-in presets were [introduced by aneesh1122](https://github.com/N-Zik-Group/N-Zik/commit/ea40544986) and maintained in N-Zik. Their catalog names are descriptive labels added for this conversion. All themes and their previews are released under the repository's [GPL-3.0-only license](../../LICENSE).
 
-Each theme uses N-Zik's Appearance reset values for fields its original preset inherited. For example, all six use the Modern queue style, the third uses a 90 cover size, and the fourth uses System palette mode. The conversion includes the colors and player/queue categories. All seven current catalog listings are revision 2 and require Android version code 99 or later. The README gallery shows captures from a debug build.
+Each theme uses N-Zik's Appearance reset values for fields its original preset inherited. For example, all six use the Modern queue style, the third uses a 90 cover size, and the fourth uses System palette mode. The conversion includes the colors and player/queue categories. All seven current V2 catalog listings require Android version code 99 or later. The README gallery shows captures from a debug build.
 
 Appearance field mappings are defined by the source settings. `coverSize` maps to the portrait `thumbnailSizeDp` preference, which the UI exposes as a 0–100 control. `transparentPlayerBar`, `noBlur` and `showExpandPlayerButton` map to `transparentbar`, `noblur` and `expandedplayertoggle`, respectively. The app still resolves how these settings interact with its layout and rendering rules.
 
@@ -65,21 +65,24 @@ Each new submission includes one Normal and one Glass preview for each of these 
 - Online search results for songs, albums and artists.
 
 Use the actual N-Zik pages with demo content or content you have permission to share.
-Keep both variants even when they look similar. You can add up to 12 extra previews.
+Keep both variants even when they look similar. The V2 gallery limit is published as
+`previewLimit` in the V2 catalog index. Use the remaining slots for additional previews.
+V1 galleries accept up to 36 images.
 WebP is preferred for still images. Animated GIFs are also accepted.
 
-Name files `<screen>-normal.webp` and `<screen>-glass.webp`, using the extensions
-accepted by the schema. Required screen names are `player`, `queue`, `lyrics`,
+Name V1 and fixed-appearance V2 files `<screen>-normal.webp` and `<screen>-glass.webp`.
+For V2 themes that follow system appearance, name files
+`<screen>-light-normal.webp`, `<screen>-light-glass.webp`,
+`<screen>-dark-normal.webp` and `<screen>-dark-glass.webp`.
+Required screen names are `player`, `queue`, `lyrics`,
 `home`, `navigation`, `album`, `artist`, `playlist`, `local-playlist`, `search`,
 `search-albums` and `search-artists`. Use the corresponding role for the player,
 queue and navigation. Use `other` for all other screens. Add a readable caption.
 
 N-Zik also captures `player-playing` and `miniplayer-playing` with the demo
 player running, plus `menu` and `dialog` with the demo song menu and confirmation
-dialog. Include both Normal and Glass variants for each of these optional scenes.
-The app generates them for both Publish and Edit. Themes that follow the system
-appearance also get `player-light` and `player-dark`, in both Normal and Glass.
-The gallery can hold at most 36 images.
+dialog. V2 system galleries include the light and dark combinations for these
+optional scenes when present. The app generates these images for both Publish and Edit.
 
 ## Maintainer reviews
 

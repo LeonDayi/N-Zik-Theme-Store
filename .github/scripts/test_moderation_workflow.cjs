@@ -22,6 +22,40 @@ const concurrent = 'd'.repeat(40);
 const branch = 'nzik/theme-9fabc1ee-37b1-4d82-8d3b-f7b141ceb831';
 const fork = { id: 2, owner: { id: 101, login: 'Creator' }, name: 'N-Zik-Theme-Store', default_branch: 'main' };
 
+test('withdrawal requires all indexed revisions and preserves unrelated catalog metadata', async () => {
+  const themeId = branch.slice('nzik/theme-'.length);
+  const withdrawalRef = `nzik/withdraw-${themeId}`;
+  const themeIndexPaths = ['catalog/themes/index.json', 'catalog/themes/index-v2.json'];
+  const manifest = revision => Buffer.from(JSON.stringify({ themeId, revision, author: { githubId: 101 } }));
+  const entry = revision => ({
+    themeId, revision, manifestSha256: require('node:crypto').createHash('sha256').update(manifest(revision)).digest('hex'),
+  });
+  const indexes = new Map([
+    [themeIndexPaths[0], { schemaVersion: 1, themes: [entry(1)] }],
+    [themeIndexPaths[1], { schemaVersion: 1, previewLimit: 80, legacyMaxVersionCode: 98, themes: [entry(2)] }],
+  ]);
+  const functions = script.slice(script.indexOf('            function readThemeIndex('),
+    script.indexOf('            const themeLabels'));
+  const validate = vm.runInNewContext(functions + '\nwithdrawalIndexes', {
+    isWithdrawal: true, pull: { user: { id: 101 }, head: { ref: withdrawalRef } },
+    withdrawalBranch: [withdrawalRef, themeId], themeIndexPaths,
+    isDeepStrictEqual: require('node:util').isDeepStrictEqual, require,
+    readFile: async path => indexes.has(path) ? JSON.stringify(indexes.get(path)) : manifest(Number(path.split('/')[3])),
+  });
+  const current = { base: { sha: main }, head: { repo: fork, ref: withdrawalRef } };
+  const candidate = {
+    ancestor, head: original, changes: [{ filename: themeIndexPaths[1], status: 'modified' }],
+    read: (sha, path) => JSON.stringify(sha === ancestor ? indexes.get(path) : { ...indexes.get(path), themes: [] }),
+  };
+  await assert.rejects(validate(current, candidate), /every catalog that lists it/);
+  candidate.changes.push({ filename: themeIndexPaths[0], status: 'modified' });
+  const repaired = await validate(current, candidate);
+  assert.deepEqual(JSON.parse(JSON.stringify(repaired.get(themeIndexPaths[1]))), {
+    schemaVersion: 1, previewLimit: 80, legacyMaxVersionCode: 98, themes: [],
+  });
+  assert.equal(repaired.get(themeIndexPaths[0]).themes.length, 0);
+});
+
 function harness({ race, missingInstallation = false, environment = {} } = {}) {
   let head = original;
   let reads = 0;
@@ -197,7 +231,8 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
       : { token: 'installation-token' } }),
     require: name => {
       if (name.endsWith('validate_submission.cjs')) return {
-        themeSubmission: () => ({ index: { schemaVersion: 1, themes: [] } }),
+        themeSubmission: () => ({ indexPath: 'catalog/themes/index-v2.json',
+          index: { schemaVersion: 1, previewLimit: 80, themes: [] } }),
         creatorSubmission: (_candidate, authorId, authorLogin) => {
           assert.equal(authorId, current.user.id);
           assert.equal(authorLogin, current.user.login);
@@ -206,7 +241,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
         trustedCandidate: () => ({
           head: original, changes: [], mergeTree: () => null,
           validateRepairedIndex: (index, indexPath) => {
-            assert.equal(indexPath, creatorProfile ? 'catalog/creators/index.json' : 'catalog/themes/index.json');
+            assert.equal(indexPath, creatorProfile ? 'catalog/creators/index.json' : 'catalog/themes/index-v2.json');
             assert.ok(creatorProfile ? index.creators : index.themes);
             validatedRepair = true;
             if (approvalRace === 'head') { current.head.sha = concurrent; refHead = concurrent; }

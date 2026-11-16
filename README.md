@@ -84,9 +84,7 @@ Run `uv run --no-project --with-requirements requirements-validation.txt python 
 
 [![Dependency Graph](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/dependabot/update-graph)
 
-[![Triage issues](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/triage-issues.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/triage-issues.yml)
-
-[![Assign Theme Store reports](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/assign-reports.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/assign-reports.yml)
+[![Moderate Theme Store reports](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/assign-reports.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/assign-reports.yml)
 
 [![Blocked contributors and moderation](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/blocked-contributors.yml/badge.svg)](https://github.com/N-Zik-Group/N-Zik-Theme-Store/actions/workflows/blocked-contributors.yml)
 

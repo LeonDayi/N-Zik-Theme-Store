@@ -117,7 +117,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
   const publications = [];
   let validatedRepair = false;
   let forkReads = 0;
-  const faults = { reset: resetFailure, deletion: deletionFailure, close: false };
+  const faults = { reset: resetFailure, deletion: deletionFailure, close: false, publication: false };
   const otherPulls = { upstream: [], fork: [] };
   let refHead = liveHead;
   let accounts = [];
@@ -140,7 +140,10 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
         return { data: snapshot() };
       },
       list: async args => ({ data: args.owner === repo.owner ? otherPulls.upstream : otherPulls.fork }),
-      listFiles: async () => ({ data: [] }),
+      listFiles: async () => {
+        if (faults.publication) throw new Error('Transient publication bookkeeping failure');
+        return { data: [] };
+      },
     },
     repos: {
       getCollaboratorPermissionLevel: async () => ({ data: { permission: 'write' } }),
@@ -160,7 +163,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
         return { data: {} };
       },
     },
-    git: { getRef: async args => {
+    git: { getCommit: async () => ({ data: { parents: [{ sha: main }, { sha: original }] } }), getRef: async args => {
       if (args.ref === 'heads/main') return { data: { object: { sha: main } } };
       if (++forkReads === 1 && resetRace === 'before-read') {
         refHead = concurrent;
@@ -215,6 +218,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
             current.merged = true;
             current.state = 'closed';
             current.merged_at = '2026-11-15T12:00:00Z';
+            current.merge_commit_sha = repaired;
           },
         }),
       };
@@ -426,6 +430,112 @@ test('repaired creator approval follows validation, exact-head merge confirmatio
   assert.deepEqual(h.writes, [{ expected: original, next: null }]);
   assert.ok(h.labels.has('merged'));
   assert.ok(h.current.locked);
+});
+
+for (const dispatch of [false, true]) {
+  test(`merged cleanup failure stays visible and retries via ${dispatch ? 'dispatch' : 'the approval event'}`, async () => {
+    const h = lifecycle({ decision: 'accepted', deletionFailure: true });
+    await h.run();
+    assert.equal(h.current.merged, true);
+    assert.equal(h.head(), original);
+    assert.ok(h.labels.has('merged'));
+    assert.ok(h.labels.has('cleanup pending'));
+    assert.match(h.failures.at(-1), /Publication succeeded.*cleanup remains pending/);
+    const record = h.comments.find(comment => comment.body.startsWith('<!-- nzik-cleanup-state '));
+    assert.match(record.body, new RegExp(`"head":"${original}"`));
+    assert.match(record.body, /only delete the branch at commit/);
+    h.faults.deletion = false;
+    h.failures.length = 0;
+    await h.run({ dispatch });
+    assert.equal(h.head(), null);
+    assert.equal(h.publications.length, 1);
+    assert.deepEqual(h.failures, []);
+    assert.ok(!h.labels.has('cleanup pending'));
+    assert.match(record.body, /cleanup completed/);
+  });
+}
+
+test('merged cleanup retries preserve new branch work using the recorded approved head', async () => {
+  const h = lifecycle({ decision: 'accepted', deletionFailure: true });
+  await h.run();
+  h.faults.deletion = false;
+  h.push(concurrent);
+  await h.run({ dispatch: true });
+  assert.equal(h.head(), concurrent);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.publications.length, 1);
+  assert.ok(h.labels.has('cleanup pending'));
+  const record = h.comments.find(comment => comment.body.startsWith('<!-- nzik-cleanup-state '));
+  assert.match(record.body, new RegExp(`"head":"${original}"`));
+});
+
+test('merged cleanup retry succeeds when the branch was already deleted', async () => {
+  const h = lifecycle({ decision: 'accepted', deletionFailure: true });
+  await h.run();
+  h.push(null);
+  h.failures.length = 0;
+  await h.run({ dispatch: true });
+  assert.deepEqual(h.failures, []);
+  assert.ok(!h.labels.has('cleanup pending'));
+  assert.equal(h.writes.length, 0);
+});
+
+for (const dispatch of [false, true]) {
+test(`merged cleanup without a saved record uses the merge parent for ${dispatch ? 'dispatch' : 'a later approval event'}`, async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  await h.run();
+  h.comments.splice(h.comments.findIndex(comment => comment.body.startsWith('<!-- nzik-cleanup-state ')), 1);
+  h.writes.length = 0;
+  h.push(concurrent);
+  await h.run({ dispatch, eventHead: concurrent });
+  assert.equal(h.head(), concurrent);
+  assert.deepEqual(h.writes, []);
+  assert.match(h.failures.at(-1), /cleanup remains pending/);
+  assert.ok(h.labels.has('cleanup pending'));
+  const record = h.comments.find(comment => comment.body.startsWith('<!-- nzik-cleanup-state '));
+  assert.match(record.body, new RegExp(`"head":"${original}"`));
+});
+}
+
+test('completed merged cleanup does not reconsider a subsequently reused branch', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  await h.run();
+  h.writes.length = 0;
+  h.push(concurrent);
+  await h.run({ dispatch: true });
+  assert.equal(h.head(), concurrent);
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.failures, []);
+  assert.ok(!h.labels.has('cleanup pending'));
+});
+
+test('a legacy refusal record is replaced using authoritative merge evidence', async () => {
+  const h = lifecycle({ decision: 'accepted', deletionFailure: true });
+  await h.run();
+  const record = h.comments.find(comment => comment.body.startsWith('<!-- nzik-cleanup-state '));
+  record.body = record.body.replace('"decision":"merged"', '"decision":"refused"');
+  h.faults.deletion = false;
+  h.failures.length = 0;
+  await h.run({ dispatch: true });
+  assert.equal(h.head(), null);
+  assert.deepEqual(h.failures, []);
+  assert.ok(!h.labels.has('cleanup pending'));
+  assert.match(record.body, /"decision":"merged"/);
+});
+
+test('publication bookkeeping failure leaves durable cleanup that manual retry completes', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  h.faults.publication = true;
+  await assert.rejects(h.run(), /publication bookkeeping/);
+  assert.equal(h.current.merged, true);
+  assert.equal(h.head(), original);
+  assert.ok(h.labels.has('cleanup pending'));
+  const record = h.comments.find(comment => comment.body.startsWith('<!-- nzik-cleanup-state '));
+  assert.match(record.body, new RegExp(`"head":"${original}"`));
+  h.faults.publication = false;
+  await h.run({ dispatch: true });
+  assert.equal(h.head(), null);
+  assert.ok(!h.labels.has('cleanup pending'));
 });
 
 for (const creatorProfile of [false, true]) {

@@ -443,13 +443,15 @@ jobs:
               return comments.find(comment => comment.user?.login === 'github-actions[bot]' &&
                 comment.body?.startsWith(cleanupMarker));
             }
-            async function savedCleanupState() {
+            async function savedCleanupState(decisions = ['refused', 'ban']) {
               const comment = await cleanupComment();
               const encoded = comment?.body?.slice(cleanupMarker.length).split(' -->')[0];
               const state = encoded && JSON.parse(encoded);
               if (!state || state.repositoryId !== pull.head.repo?.id || state.branch !== pull.head.ref ||
                   !/^[0-9a-f]{40}$/.test(state.head) || !/^[0-9a-f]{40}$/.test(state.reset) ||
-                  !['refused', 'ban'].includes(state.decision) ||
+                  !decisions.includes(state.decision) ||
+                  (state.decision === 'merged' && state.reset !== state.head) ||
+                  (state.completed !== undefined && typeof state.completed !== 'boolean') ||
                   (state.reason !== '' && !Object.hasOwn(reasons, state.reason))) {
                 throw new Error('No valid recorded cleanup state exists. The submission branch was preserved.');
               }
@@ -457,9 +459,9 @@ jobs:
             }
             async function reportCleanup(state, complete) {
               const comment = await cleanupComment();
-              const body = cleanupMarker + JSON.stringify(state) + ' -->\n' + (complete
+              const body = cleanupMarker + JSON.stringify({ ...state, completed: complete }) + ' -->\n' + (complete
                 ? 'Submission branch cleanup completed.'
-                : `Submission branch cleanup is pending. The bot will only reset commit ${state.head}; newer work is preserved. ` +
+                : `Submission branch cleanup is pending. The bot will only ${state.decision === 'merged' ? 'delete the branch at' : 'reset'} commit ${state.head}; newer work is preserved. ` +
                   `After restoring fork access, rerun this job or run Blocked contributors with pull_request_number=${pull.number}.`);
               if (comment) await github.rest.issues.updateComment({ ...context.repo, comment_id: comment.id, body });
               else await github.rest.issues.createComment({ ...target, body });
@@ -616,8 +618,47 @@ jobs:
               // The push can finish before GitHub updates the pull request metadata.
               for (let attempt = 0; attempt < 12; attempt++) {
                 if (confirmed?.merged && confirmed.merged_at) {
+                  if (!managedSubmission || !confirmed.head.repo || confirmed.head.repo.id === event.repository.id) {
+                    await announcePublication(confirmed);
+                    return;
+                  }
+                  await status('merged');
+                  await ensureLabel('cleanup pending', 'd93f0b');
+                  await github.rest.issues.addLabels({ ...target, labels: ['cleanup pending'] });
+                  const recordedCleanup = await cleanupComment();
+                  const saved = recordedCleanup ? await savedCleanupState(['merged', 'refused', 'ban']) : null;
+                  let cleanup = saved?.decision === 'merged' ? saved : null;
+                  if (!cleanup) {
+                    // GitHub events and retries may expose a reused branch's newer head.
+                    // Our publisher preserves the approved head as the merge's second parent.
+                    if (!/^[0-9a-f]{40}$/.test(confirmed.merge_commit_sha ?? '')) {
+                      core.setFailed('No approved merge commit is available for cleanup. The fork branch was preserved.');
+                      return;
+                    }
+                    const { data: mergedCommit } = await github.rest.git.getCommit({
+                      ...context.repo, commit_sha: confirmed.merge_commit_sha
+                    });
+                    const approvedHead = mergedCommit.parents?.length === 2 ? mergedCommit.parents[1].sha : '';
+                    if (!/^[0-9a-f]{40}$/.test(approvedHead)) {
+                      core.setFailed('The merge does not identify one approved submission head. The fork branch was preserved.');
+                      return;
+                    }
+                    cleanup = { repositoryId: confirmed.head.repo.id, branch: pull.head.ref,
+                      head: approvedHead, reset: approvedHead, decision: 'merged', reason: '' };
+                  }
+                  if (cleanup.completed) {
+                    await announcePublication(confirmed);
+                    await reportCleanup(cleanup, true);
+                    return;
+                  }
+                  // Persist before publication bookkeeping, which may fail independently of the merge.
+                  await reportCleanup(cleanup, false);
                   await announcePublication(confirmed);
-                  await cleanSubmissionBranch(pull.head.sha, true);
+                  if (await cleanSubmissionBranch(cleanup.head, true)) {
+                    await reportCleanup(cleanup, true);
+                  } else {
+                    core.setFailed('Publication succeeded, but submission branch cleanup remains pending. Retry cleanup after restoring fork access; newer work is preserved.');
+                  }
                   return;
                 }
                 if (attempt < 11) {

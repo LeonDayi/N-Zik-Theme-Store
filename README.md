@@ -20,6 +20,8 @@
 
 The [catalog index](catalog/themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. Each published revision declares its own compatibility.
 
+**Theme Store is in Beta**, including in the stable N-Zik 8.7.0 app. Published themes require Android version code **97 or later**. Earlier builds can browse the catalog but cannot apply these revisions.
+
 <div align="center">
 
 ## 📚 Documentation
@@ -83,6 +85,8 @@ Run `uv run --no-project --with-requirements requirements-validation.txt python 
 [Repository labels](https://github.com/N-Zik-Group/N-Zik-Theme-Store/labels)
 
 Submissions use `in review`, `accepted`, `merged`, `refused` or `ban`. Refusals and bans use a `reason:` label. Catalog reports are tagged `report` and assigned to a maintainer.
+
+If fork cleanup fails after publication, the theme remains published and the pull request keeps `merged` plus `cleanup pending`. The bot records the approved commit and preserves newer branch work. Restore fork access, then rerun the approval job or run **Blocked contributors** manually with the pull request number. A successful retry removes `cleanup pending`. For older merged submissions without a cleanup record, the bot uses the approved head preserved in the merge commit. If that evidence is unavailable, it preserves the branch and reports the incomplete cleanup.
 
 # 👥 Contributors
 

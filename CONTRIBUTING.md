@@ -11,11 +11,13 @@ Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Use the [issue forms](https://
 
 The `Stock` and `Built-in` tags are reserved for verified N-Zik creators, including variants in capitalization, accents, or punctuation.
 
+The Theme Store remains **Beta** in N-Zik 8.7.0. Set `compatibility.minVersionCode` to **97** by default, or a higher code when the theme needs a newer app. Publication rejects missing, `null`, or lower values. The V1 format still accepts legacy compatibility metadata for reading existing packages.
+
 Compute hashes with `sha256sum <path>` on Linux or `Get-FileHash <path> -Algorithm SHA256` in PowerShell. Use lowercase hashes in JSON. The [README](README.md) explains compatibility and the file layout.
 
 ## Update or withdraw a theme
 
-- **Update:** Keep the same ID and author. Before the stable release, update revision 1 and its manifest hash in the index. After the stable release, create the next revision directory, keep older directories intact, and update the index entry.
+- **Update:** Keep the same ID and author. Submit a new numbered revision, keep older directories intact, and update the index entry. Maintainer corrections to the initial Beta catalog may update revision 1 and its manifest hash together; the code 97 compatibility rollout uses this exception.
 - **Withdraw:** Submit the request from N-Zik, or open a PR from a `nzik/withdraw-<themeId>` branch on your own fork. Change only [the index](catalog/themes/index.json) by removing the entry for your published theme. Moderation checks the numeric GitHub ID in the current manifest before accepting the request. Once accepted, the bot removes all published revisions of that theme from the current branch. For sensitive material in Git history, contact a moderator privately.
 
 ## Licensing

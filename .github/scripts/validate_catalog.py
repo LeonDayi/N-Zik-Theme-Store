@@ -17,6 +17,7 @@ THEME_DOCUMENT_LIMIT = 128 * 1024
 PREVIEW_LIMIT = 4 * 1024 * 1024
 CATALOG_SNAPSHOT_LIMIT = 16 * 1024 * 1024
 DEMO_INDEX_LIMIT = 8 * 1024
+MINIMUM_PUBLISHED_VERSION_CODE = 97
 
 
 def validate_metadata_const(validator, expected, value, schema):
@@ -134,6 +135,12 @@ def validate_reserved_tags(manifest, verified_ids):
         normalized = "".join(char for char in unicodedata.normalize("NFKD", tag).casefold() if char.isalnum())
         if normalized in {"stock", "builtin"}:
             raise ValueError(f'{manifest["title"]}: tag {tag!r} is reserved for verified N-Zik creators')
+
+
+def validate_publication_compatibility(manifest):
+    minimum = manifest.get("compatibility", {}).get("minVersionCode")
+    if type(minimum) is not int or minimum < MINIMUM_PUBLISHED_VERSION_CODE:
+        raise ValueError(f"Published themes must require Android version code {MINIMUM_PUBLISHED_VERSION_CODE} or later")
 
 
 def validate_gallery(manifest):
@@ -281,6 +288,7 @@ def main():
         manifest_paths.append(folder / "manifest.json")
         check_hash(folder / "manifest.json", entry["manifestSha256"])
         manifest = validate_theme(folder, manifest_validator, appearance_validator)
+        validate_publication_compatibility(manifest)
         validate_gallery(manifest)
         validate_reserved_tags(manifest, verified_ids)
         if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):

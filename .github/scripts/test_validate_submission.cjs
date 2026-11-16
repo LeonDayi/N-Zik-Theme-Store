@@ -35,7 +35,8 @@ function makeCandidate() {
   return { candidate, put };
 }
 
-function themeFixture({ published = false, submittedOwner = id, publishedOwner = id, publishedLogin = login } = {}) {
+function themeFixture({ published = false, submittedOwner = id, publishedOwner = id, publishedLogin = login,
+  compatibility = { minVersionCode: 97 } } = {}) {
   const { candidate, put } = makeCandidate();
   const revision = published ? 2 : 1;
   const manifestFile = `${themePath}${revision}/manifest.json`;
@@ -44,6 +45,7 @@ function themeFixture({ published = false, submittedOwner = id, publishedOwner =
     themeId, revision: 1, manifestSha256: put('base', `${themePath}1/manifest.json`, oldManifest),
   }] : [];
   const manifest = { themeId, revision, author: { githubId: submittedOwner, login },
+    compatibility,
     appearance: { path: 'appearance.json' }, previews: [{ path: 'previews/player-normal.webp' }] };
   const entry = { themeId, revision, manifestSha256: put('head', manifestFile, manifest) };
   const reviewsFile = `${themePath}${revision}/reviews.json`;
@@ -69,6 +71,19 @@ test('an updated theme uses the authenticated current login after a GitHub renam
   const { candidate, entry } = themeFixture({ published: true, publishedLogin: 'Previous-Creator' });
   assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
   assert.throws(() => themeSubmission(candidate, id, 'Previous-Creator', themeId), /author/);
+});
+
+test('theme publication requires Android code 97 or later even when updating a legacy theme', () => {
+  for (const published of [false, true]) {
+    for (const compatibility of [null, {}, { minVersionCode: null }, { minVersionCode: 96 }, { minVersionCode: '97' }]) {
+      const { candidate } = themeFixture({ published, compatibility });
+      assert.throws(() => themeSubmission(candidate, id, login, themeId), /version code 97/);
+    }
+    for (const minVersionCode of [97, 98]) {
+      const { candidate, entry } = themeFixture({ published, compatibility: { minVersionCode } });
+      assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
+    }
+  }
 });
 
 test('theme approval rejects unrelated files and changes to existing revisions', () => {

@@ -14,7 +14,7 @@
     "coverless"
   ],
   "compatibility": {
-    "minVersionCode": 96
+    "minVersionCode": 97
   },
   "appearance": {
     "path": "appearance.json",

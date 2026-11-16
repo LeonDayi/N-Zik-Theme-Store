@@ -49,6 +49,25 @@ class CatalogValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds 131072 bytes"):
             self.validate_theme()
 
+    def test_publication_requires_code_97_while_v1_remains_readable(self):
+        validator = catalog.load_schema("theme")
+        for minimum in (None, 1, 96, 97, 98):
+            with self.subTest(minimum=minimum):
+                self.manifest["compatibility"] = {"minVersionCode": minimum}
+                self.assertTrue(validator.is_valid(self.manifest))
+                if minimum is not None and minimum >= 97:
+                    catalog.validate_publication_compatibility(self.manifest)
+                else:
+                    with self.assertRaisesRegex(ValueError, "version code 97"):
+                        catalog.validate_publication_compatibility(self.manifest)
+        for compatibility in ({}, {"minVersionCode": "97"}, {"minVersionCode": 97.0}):
+            self.manifest["compatibility"] = compatibility
+            with self.assertRaisesRegex(ValueError, "version code 97"):
+                catalog.validate_publication_compatibility(self.manifest)
+        del self.manifest["compatibility"]
+        with self.assertRaisesRegex(ValueError, "version code 97"):
+            catalog.validate_publication_compatibility(self.manifest)
+
     def test_preview_limit_is_checked_even_when_hash_matches(self):
         (self.folder / "previews").mkdir()
         for size in (catalog.PREVIEW_LIMIT, catalog.PREVIEW_LIMIT + 1):
@@ -101,7 +120,7 @@ class CatalogValidationTest(unittest.TestCase):
         self.assertTrue(validator.is_valid("Review-User"))
         self.assertFalse(validator.is_valid("Review-User\n"))
 
-    def test_catalog_accepts_historical_theme_author_login_after_creator_rename(self):
+    def test_catalog_accepts_renamed_creator_and_enforces_publication_floor(self):
         author_id = self.manifest["author"]["githubId"]
         theme_id = self.manifest["themeId"]
         catalog_root = self.folder / "catalog"
@@ -141,6 +160,16 @@ class CatalogValidationTest(unittest.TestCase):
         }]})
         with patch.object(catalog, "CATALOG", catalog_root):
             catalog.main()
+            for minimum in (96, None):
+                with self.subTest(minimum=minimum):
+                    self.manifest["compatibility"] = {"minVersionCode": minimum}
+                    manifest_path = self.write_json(theme_folder / "manifest.json", self.manifest)
+                    self.write_json(theme_root / "index.json", {"schemaVersion": 1, "themes": [{
+                        "themeId": theme_id, "revision": 1,
+                        "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+                    }]})
+                    with self.assertRaisesRegex(ValueError, "version code 97"):
+                        catalog.main()
 
     def test_navigation_layout_values_reject_trailing_line_break(self):
         schema = catalog.load_schema("appearance").schema

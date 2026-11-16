@@ -12,7 +12,7 @@
     "glass"
   ],
   "compatibility": {
-    "minVersionCode": null
+    "minVersionCode": 97
   },
   "appearance": {
     "path": "appearance.json",

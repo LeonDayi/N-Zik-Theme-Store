@@ -6,6 +6,7 @@ const { isDeepStrictEqual } = require('node:util');
 
 const themeIndexPath = 'catalog/themes/index.json';
 const creatorIndexPath = 'catalog/creators/index.json';
+const minimumPublishedVersionCode = 97;
 const previewPath = /^previews\/[a-z0-9][a-z0-9_-]{0,79}\.(jpg|png|webp|gif)(?![\s\S])/;
 const creatorImage = /^[a-z0-9][a-z0-9_-]{0,63}\.(webp|png|jpg)(?![\s\S])/;
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -62,6 +63,9 @@ function themeSubmission(candidate, id, login, themeId) {
   const bytes = read(head, manifestFile);
   const manifest = JSON.parse(bytes);
   verifyAccount(id, login, manifest.author);
+  assert(Number.isSafeInteger(manifest.compatibility?.minVersionCode) &&
+    manifest.compatibility.minVersionCode >= minimumPublishedVersionCode,
+  `Published themes must require Android version code ${minimumPublishedVersionCode} or later.`);
   assert(sha256(bytes) === entry.manifestSha256 && manifest.themeId === themeId &&
     manifest.revision === entry.revision && manifest.appearance?.path === 'appearance.json' &&
     Array.isArray(manifest.previews), 'The index and manifest must identify the submitted revision.');

@@ -32,8 +32,9 @@ class CatalogValidationTest(unittest.TestCase):
         path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
         return path
 
-    def validate_theme(self):
-        return catalog.validate_theme(self.folder, catalog.load_schema("theme"), catalog.load_schema("appearance"))
+    def validate_theme(self, *, published=False):
+        appearances = {version: catalog.load_schema("appearance", version) for version in (1, 2)}
+        return catalog.validate_theme(self.folder, catalog.load_schema("theme"), appearances, published=published)
 
     def write_theme(self, appearance=None):
         appearance = self.appearance if appearance is None else appearance
@@ -56,17 +57,67 @@ class CatalogValidationTest(unittest.TestCase):
                 self.manifest["compatibility"] = {"minVersionCode": minimum}
                 self.assertTrue(validator.is_valid(self.manifest))
                 if minimum is not None and minimum >= 97:
-                    catalog.validate_publication_compatibility(self.manifest)
+                    catalog.validate_publication_compatibility(self.manifest, 1)
                 else:
                     with self.assertRaisesRegex(ValueError, "version code 97"):
-                        catalog.validate_publication_compatibility(self.manifest)
+                        catalog.validate_publication_compatibility(self.manifest, 1)
         for compatibility in ({}, {"minVersionCode": "97"}, {"minVersionCode": 97.0}):
             self.manifest["compatibility"] = compatibility
             with self.assertRaisesRegex(ValueError, "version code 97"):
-                catalog.validate_publication_compatibility(self.manifest)
+                catalog.validate_publication_compatibility(self.manifest, 1)
         del self.manifest["compatibility"]
         with self.assertRaisesRegex(ValueError, "version code 97"):
-            catalog.validate_publication_compatibility(self.manifest)
+            catalog.validate_publication_compatibility(self.manifest, 1)
+
+    def test_v2_appearance_selects_android_code_99_at_publication(self):
+        appearance = b'{"schemaVersion": 2, "categories": {"colors": {"palette": "dynamic", "mode": "system"}}}'
+        for minimum in (None, 97, 98, 99, 100):
+            with self.subTest(minimum=minimum):
+                self.manifest["compatibility"]["minVersionCode"] = minimum
+                self.write_theme(appearance)
+                if minimum is not None and minimum >= 99:
+                    self.validate_theme(published=True)
+                else:
+                    with self.assertRaisesRegex(ValueError, "version code 99"):
+                        self.validate_theme(published=True)
+
+    def test_v2_player_preferences_and_retired_video_fields(self):
+        appearance = json.loads(self.appearance)
+        self.assertTrue(catalog.load_schema("appearance").is_valid(appearance))
+        appearance["schemaVersion"] = 2
+        player = appearance["categories"]["playerAndQueue"]
+        v2 = catalog.load_schema("appearance", 2)
+        self.assertFalse(v2.is_valid(appearance))
+        del player["actionButtons"]["video"]
+        self.assertTrue(v2.is_valid(appearance))
+        player.update(openingMode="remember-last", holdToSpeedUp=True, holdToSpeedUpRate=1.1)
+        self.write_theme(json.dumps(appearance).encode())
+        self.validate_theme()
+        for field, value in (("openingMode", "automatic"), ("holdToSpeedUp", 1),
+                             ("holdToSpeedUpRate", 1.09), ("holdToSpeedUpRate", 4.01),
+                             ("actionBarOrder", ["video"])):
+            with self.subTest(field=field, value=value):
+                invalid_player = {**player, field: value}
+                self.assertFalse(v2.is_valid({**appearance, "categories": {"playerAndQueue": invalid_player}}))
+        for container in ("buttonOrder", "visibleButtons"):
+            with self.subTest(container=container):
+                visible_buttons = (
+                    "playPause", "skipBack", "skipForward", "shuffle", "repeat", "like", "addToPlaylist",
+                    "download", "share", "radio", "audioOutput", "sleepTimer", "lyrics", "visualizer",
+                    "queue", "discover",
+                )
+                mini_player = {
+                    "type": "essential",
+                    "buttonOrder": ["queue"],
+                    "visibleButtons": dict.fromkeys(visible_buttons, True),
+                }
+                player["miniPlayer"] = mini_player
+                self.assertTrue(v2.is_valid(appearance))
+                if container == "buttonOrder":
+                    mini_player["buttonOrder"].append("video")
+                else:
+                    mini_player["visibleButtons"]["video"] = True
+                self.assertFalse(v2.is_valid(appearance))
 
     def test_preview_limit_is_checked_even_when_hash_matches(self):
         (self.folder / "previews").mkdir()

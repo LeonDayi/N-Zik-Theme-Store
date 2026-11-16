@@ -3,38 +3,38 @@
   "themes": [
     {
       "themeId": "99edc843-6a9b-5753-8e76-cc11fe9b3295",
-      "revision": 1,
-      "manifestSha256": "d59422906e2ae8b59cb002e68781585139a8ec1b29f7874116a0d433a1da9f99"
+      "revision": 2,
+      "manifestSha256": "a96e81ee2e9412cba1541005677428735780ee0e6db3032e2eececfbe72d594d"
     },
     {
       "themeId": "8f13dfe9-5dc9-5dc3-b563-aa9f11cf67b7",
-      "revision": 1,
-      "manifestSha256": "22859470d3815921fd26f6802bb10ed754e438324fa08ef75d5df262b891fed9"
+      "revision": 2,
+      "manifestSha256": "2c55c16f82f5d29f6e1e88b127d67372ee83a4f903ca5b2f6ba368b09b6a7518"
     },
     {
       "themeId": "8d06299d-a4c1-5dc7-bf21-8694af77ae36",
-      "revision": 1,
-      "manifestSha256": "d74bd5dc9c6094fca484667b959f2eba9ea435e78b35b477574c708b47842dac"
+      "revision": 2,
+      "manifestSha256": "7d492307cdb3954492788364af754a25421c0c5ff150835e9d6687c7394cc1ce"
     },
     {
       "themeId": "e9fb0ce8-3b8d-5c96-9d00-f4d5f1fdcf4a",
-      "revision": 1,
-      "manifestSha256": "595ef848d228bf2c362ad4e4c4beb90e2551efbb02eacaa5fce5c1d5d964ed31"
+      "revision": 2,
+      "manifestSha256": "00a4c58b45139cd874e9bffd4496b9c395ed22688f1134b0fd22b67de4527813"
     },
     {
       "themeId": "1a59f7da-312a-52a4-93f3-8e469a987709",
-      "revision": 1,
-      "manifestSha256": "26a1954c59cc32a759f25ceec5e09d5fc837df50e4591760491ef4be372cb7d2"
+      "revision": 2,
+      "manifestSha256": "805eebe18ca320fdd4732ad1795485bd64a126ef7df78cd2369370ca1986dbc7"
     },
     {
       "themeId": "481186ac-8178-55b6-a20d-a01dbc5efe64",
-      "revision": 1,
-      "manifestSha256": "734832678383439ccee89235b861f464c005fc1544ccc83fa9446703e7dca951"
+      "revision": 2,
+      "manifestSha256": "ab0ebda980baec58cebe1d78a371037ff68224824f0da3086d34e2ae3f0ae6e4"
     },
     {
       "themeId": "835ee11b-421e-41a1-8de2-5c82ffbe4fca",
-      "revision": 1,
-      "manifestSha256": "f22bdf4b4e76d55104be97aa3dda1e01442e58b4e8f86bdc12741dbd5a54bb9e"
+      "revision": 2,
+      "manifestSha256": "9793ac0d8deb4417d84b86a8a15954f53aabaaec4735d721acf5d7e4dab0525d"
     }
   ]
 }

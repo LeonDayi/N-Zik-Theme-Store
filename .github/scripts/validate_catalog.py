@@ -17,7 +17,7 @@ THEME_DOCUMENT_LIMIT = 128 * 1024
 PREVIEW_LIMIT = 4 * 1024 * 1024
 CATALOG_SNAPSHOT_LIMIT = 16 * 1024 * 1024
 DEMO_INDEX_LIMIT = 8 * 1024
-MINIMUM_PUBLISHED_VERSION_CODE = 97
+MINIMUM_PUBLISHED_VERSION_CODES = {1: 97, 2: 99}
 
 
 def validate_metadata_const(validator, expected, value, schema):
@@ -71,8 +71,8 @@ def load_json(path, limit=CATALOG_LIMIT):
     return json.loads(content, parse_float=Decimal, parse_constant=reject_nonfinite, object_pairs_hook=unique_members)
 
 
-def load_schema(name):
-    schema = load_json(CATALOG / "schemas" / "v1" / f"{name}.schema.json")
+def load_schema(name, version=1):
+    schema = load_json(CATALOG / "schemas" / f"v{version}" / f"{name}.schema.json")
     Draft202012Validator.check_schema(schema)
     validator = AppearanceValidator if name == "appearance" else MetadataValidator
     return validator(schema)
@@ -80,11 +80,15 @@ def load_schema(name):
 
 def validate_json(path, validator, limit=CATALOG_LIMIT):
     document = load_json(path, limit)
+    validate_document(path, document, validator)
+    return document
+
+
+def validate_document(path, document, validator):
     errors = list(validator.iter_errors(document))
     if errors:
         error = errors[0]
         raise ValueError(f"{path} at {error.json_path}: {error.message}")
-    return document
 
 
 def check_hash(path, expected, limit=CATALOG_LIMIT):
@@ -106,12 +110,18 @@ def validate_image(path, expected):
         raise ValueError(f"{path}: invalid {expected_format} image") from error
 
 
-def validate_theme(folder, manifest_validator, appearance_validator):
+def validate_theme(folder, manifest_validator, appearance_validators, *, published=False):
     manifest = validate_json(folder / "manifest.json", manifest_validator)
     appearance = manifest["appearance"]
     appearance_path = folder / appearance["path"]
     check_hash(appearance_path, appearance["sha256"], THEME_DOCUMENT_LIMIT)
-    validate_json(appearance_path, appearance_validator, THEME_DOCUMENT_LIMIT)
+    document = load_json(appearance_path, THEME_DOCUMENT_LIMIT)
+    version = document.get("schemaVersion") if isinstance(document, dict) else None
+    if not isinstance(version, (int, Decimal)) or isinstance(version, bool) or version not in appearance_validators:
+        raise ValueError(f"{appearance_path}: unsupported appearance schemaVersion {version!r}")
+    validate_document(appearance_path, document, appearance_validators[version])
+    if published:
+        validate_publication_compatibility(manifest, version)
 
     preview_paths = set()
     for preview in manifest["previews"]:
@@ -137,10 +147,11 @@ def validate_reserved_tags(manifest, verified_ids):
             raise ValueError(f'{manifest["title"]}: tag {tag!r} is reserved for verified N-Zik creators')
 
 
-def validate_publication_compatibility(manifest):
-    minimum = manifest.get("compatibility", {}).get("minVersionCode")
-    if type(minimum) is not int or minimum < MINIMUM_PUBLISHED_VERSION_CODE:
-        raise ValueError(f"Published themes must require Android version code {MINIMUM_PUBLISHED_VERSION_CODE} or later")
+def validate_publication_compatibility(manifest, appearance_version):
+    required_version_code = MINIMUM_PUBLISHED_VERSION_CODES[appearance_version]
+    minimum = (manifest.get("compatibility") or {}).get("minVersionCode")
+    if type(minimum) is not int or minimum < required_version_code:
+        raise ValueError(f"Published themes must require Android version code {required_version_code} or later")
 
 
 def validate_gallery(manifest):
@@ -248,7 +259,7 @@ def validate_demo_assets():
 def main():
     validate_demo_assets()
     manifest_validator = load_schema("theme")
-    appearance_validator = load_schema("appearance")
+    appearance_validators = {version: load_schema("appearance", version) for version in MINIMUM_PUBLISHED_VERSION_CODES}
     catalog = validate_json(CATALOG / "themes" / "index.json", load_schema("catalog"))
     reviews_validator = load_schema("reviews")
     creator_validator = load_schema("creator")
@@ -273,7 +284,7 @@ def main():
     if {p.name for p in creator_root.iterdir() if p.is_dir()} != {str(i) for i in creator_ids}:
         raise ValueError("creators: index and profile directories differ")
     example = ROOT / "demo" / "examples" / "theme-v1"
-    validate_theme(example, manifest_validator, appearance_validator)
+    validate_theme(example, manifest_validator, appearance_validators)
     validate_reviews(example, reviews_validator)
 
     theme_ids = set()
@@ -287,8 +298,7 @@ def main():
         folder = CATALOG / "themes" / theme_id / str(revision)
         manifest_paths.append(folder / "manifest.json")
         check_hash(folder / "manifest.json", entry["manifestSha256"])
-        manifest = validate_theme(folder, manifest_validator, appearance_validator)
-        validate_publication_compatibility(manifest)
+        manifest = validate_theme(folder, manifest_validator, appearance_validators, published=True)
         validate_gallery(manifest)
         validate_reserved_tags(manifest, verified_ids)
         if (manifest["themeId"], manifest["revision"]) != (theme_id, revision):
@@ -301,7 +311,7 @@ def main():
             raise ValueError(f"{reviews}: missing revision manifest")
         validate_reviews(reviews.parent, reviews_validator)
 
-    print(f"Validated the v1 schemas, examples, {len(theme_ids)} published themes and {len(creator_ids)} creators.")
+    print(f"Validated the schemas, examples, {len(theme_ids)} published themes and {len(creator_ids)} creators.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 1,
+  "themeId": "8f13dfe9-5dc9-5dc3-b563-aa9f11cf67b7",
+  "revision": 2,
+  "title": "Carousel",
+  "description": "Modern player with a cover carousel, blurred artwork and a thin timeline.",
+  "author": {
+    "githubId": 292738521,
+    "login": "N-Zik-Group"
+  },
+  "tags": [
+    "built-in",
+    "artwork",
+    "carousel"
+  ],
+  "compatibility": {
+    "minVersionCode": 99
+  },
+  "appearance": {
+    "path": "appearance.json",
+    "sha256": "a20f468cd50aa63a3ca21e111bfbd2973c4f9a253f3b7d67bdad0dbe76d5919b"
+  },
+  "previews": [
+    {
+      "path": "previews/player-normal.webp",
+      "role": "player",
+      "caption": "Player · Normal",
+      "sha256": "2cd5b3e28eaa35829145384f1ca6d7fe30db4f9c5ee6ed8fe18df9835b17fc46"
+    },
+    {
+      "path": "previews/player-glass.webp",
+      "role": "player",
+      "caption": "Player · Glass",
+      "sha256": "a4fa16870d181e3396ca50e1e32bb7aea9282f214c38f86fcb4188236e8fd04c"
+    },
+    {
+      "path": "previews/queue-normal.webp",
+      "role": "queue",
+      "caption": "Queue · Normal",
+      "sha256": "400f6d9534ca572353b14cb002124c277a15ec2d9a21b450c535e08c8c094e11"
+    },
+    {
+      "path": "previews/queue-glass.webp",
+      "role": "queue",
+      "caption": "Queue · Glass",
+      "sha256": "b2eb0c50a816650e6de0cab6604e1dd22b0c698a7f988b4142135819c0cb6959"
+    },
+    {
+      "path": "previews/home-normal.webp",
+      "role": "other",
+      "caption": "Home · Normal",
+      "sha256": "4676a9071a87e0cf296c02b268a7b9f5bd494c080e26e20870169534f128188b"
+    },
+    {
+      "path": "previews/home-glass.webp",
+      "role": "other",
+      "caption": "Home · Glass",
+      "sha256": "40e451c75445e5b0381b20b889958d6221c5fe476386a353f6508e97dbc09b9d"
+    },
+    {
+      "path": "previews/navigation-normal.webp",
+      "role": "navigation",
+      "caption": "Library and navigation · Normal",
+      "sha256": "1eb69f38eb5c98ce82dc2fbd50d80029b2a60235ef161553919239aa42d10824"
+    },
+    {
+      "path": "previews/navigation-glass.webp",
+      "role": "navigation",
+      "caption": "Library and navigation · Glass",
+      "sha256": "8cce65a3ed8b99009ea8ce4ae39c3419ae3b409591dfed5d708f5b3703a01baa"
+    },
+    {
+      "path": "previews/search-normal.webp",
+      "role": "other",
+      "caption": "Search · Normal",
+      "sha256": "89f99db235f41f91a36534a79d1555433abca0146a0b5c9ce955c9cd6881e79d"
+    },
+    {
+      "path": "previews/search-glass.webp",
+      "role": "other",
+      "caption": "Search · Glass",
+      "sha256": "9b9e2d1701c193d5d3517cb8e856b1d58ff8c27f592c725774be7ccc39143fc7"
+    },
+    {
+      "path": "previews/album-normal.webp",
+      "role": "other",
+      "caption": "Album · Normal",
+      "sha256": "ee5f76d3f7f9dd8f39b8e8c3447f0924c5a50779144102286949f18546e5d230"
+    },
+    {
+      "path": "previews/album-glass.webp",
+      "role": "other",
+      "caption": "Album · Glass",
+      "sha256": "8f4e425a8cf2e58fe693a7aa2cb3bbde32642eebba074992f7507486159b39b1"
+    },
+    {
+      "path": "previews/search-albums-normal.webp",
+      "role": "other",
+      "caption": "Search albums · Normal",
+      "sha256": "dfff3233b901cac5904c1d6f858117fcc9049cca1fa1a4e02e9a6f0b6562b0c9"
+    },
+    {
+      "path": "previews/search-albums-glass.webp",
+      "role": "other",
+      "caption": "Search albums · Glass",
+      "sha256": "de94c327e957c46c31335ba8ea30dd8eb782f647e3787a977a3f8fdacd97869b"
+    },
+    {
+      "path": "previews/search-artists-normal.webp",
+      "role": "other",
+      "caption": "Search artists · Normal",
+      "sha256": "b606a243a91b1f21796e22c57f939fb839f9e967f0f29e312032c3585de5feb2"
+    },
+    {
+      "path": "previews/search-artists-glass.webp",
+      "role": "other",
+      "caption": "Search artists · Glass",
+      "sha256": "d8797c08e4c2f2b94e06ec210e5f049623b79c3317086304e18643a22e7497bc"
+    },
+    {
+      "path": "previews/lyrics-normal.webp",
+      "role": "other",
+      "caption": "Lyrics · Normal",
+      "sha256": "6b9e0fa7b04dc4a73faebeffd271f7153b2ab438de85b22b10b6c11a21a07fa7"
+    },
+    {
+      "path": "previews/lyrics-glass.webp",
+      "role": "other",
+      "caption": "Lyrics · Glass",
+      "sha256": "c3ec614c31a30c88a387af68b2804b26815b4157396741d04fc64fb6ce5e6bee"
+    },
+    {
+      "path": "previews/artist-normal.webp",
+      "role": "other",
+      "caption": "Artist · Normal",
+      "sha256": "c9dc788f138a7fae7f33e8a494293b6299a7471420a4089f669c1872bc5f4c7e"
+    },
+    {
+      "path": "previews/artist-glass.webp",
+      "role": "other",
+      "caption": "Artist · Glass",
+      "sha256": "50ee419ac06b2f84c0c7d3efa62969eacda91c2801c1142150cb13b1c691fa7b"
+    },
+    {
+      "path": "previews/playlist-normal.webp",
+      "role": "other",
+      "caption": "Playlist · Normal",
+      "sha256": "f5ac32c96670683398539f13645d967820547c35e24da06720a42809b1e6a5e8"
+    },
+    {
+      "path": "previews/playlist-glass.webp",
+      "role": "other",
+      "caption": "Playlist · Glass",
+      "sha256": "8fa03aef6a9a00cd59449bd81f30942143dd828887d19e58a724bf001d308187"
+    },
+    {
+      "path": "previews/local-playlist-normal.webp",
+      "role": "other",
+      "caption": "Local playlist · Normal",
+      "sha256": "f0b181fd626d952f3033fc08c14a8892dc8da0cdad803ea6837c300ea1b7bd2b"
+    },
+    {
+      "path": "previews/local-playlist-glass.webp",
+      "role": "other",
+      "caption": "Local playlist · Glass",
+      "sha256": "29db59b37daea091347523cbff932ad80934704257593ef98e40eeda3aa2c808"
+    },
+    {
+      "path": "previews/player-playing-normal.webp",
+      "role": "other",
+      "caption": "Player playing · Normal",
+      "sha256": "21b1b0c954aa1be964a9cf72e542b0025ac190895bbc854b7a3cced907fb946d"
+    },
+    {
+      "path": "previews/player-playing-glass.webp",
+      "role": "other",
+      "caption": "Player playing · Glass",
+      "sha256": "1160cba1cd97c5cdecedf5242cd7d94cb02196a5044051e26c19ca9229a0ae9b"
+    },
+    {
+      "path": "previews/miniplayer-playing-normal.webp",
+      "role": "other",
+      "caption": "Mini-player playing · Normal",
+      "sha256": "d52aa65e67b2c5445fd3eeb932032aff3baff37a9f5d1b06ddb7b9bec41bb2f5"
+    },
+    {
+      "path": "previews/miniplayer-playing-glass.webp",
+      "role": "other",
+      "caption": "Mini-player playing · Glass",
+      "sha256": "4887de4dee6780588bd008aee9aadaa3e8b813bc6b78599e6e42d60c1c66fa8d"
+    },
+    {
+      "path": "previews/menu-normal.webp",
+      "role": "other",
+      "sha256": "b6a1ed96a089b5efb53769ebf1ce8d786ba7995b838b3fa748dbf83c15915777",
+      "caption": "Menu · Normal"
+    },
+    {
+      "path": "previews/menu-glass.webp",
+      "role": "other",
+      "sha256": "6487b9d85bf51ab17200f3b9f9bfc5f9a4742de36a03bd1f17113678f99a2300",
+      "caption": "Menu · Glass"
+    },
+    {
+      "path": "previews/dialog-normal.webp",
+      "role": "other",
+      "sha256": "16838ea20636c242cca8f1a3fd78bef92c774a63a9e01a227839e18d96ad1f8f",
+      "caption": "Dialog · Normal"
+    },
+    {
+      "path": "previews/dialog-glass.webp",
+      "role": "other",
+      "sha256": "bd5f60c0743f6732627f7f26d70c84c057cdca295d5682674c28a4e031c5d9a7",
+      "caption": "Dialog · Glass"
+    },
+    {
+      "path": "previews/player-light-normal.webp",
+      "role": "other",
+      "sha256": "3a188eb8fa27d9330f67603699fac34680b8f25aa4a191624b6c6b5ae59565ac",
+      "caption": "Player light · Normal"
+    },
+    {
+      "path": "previews/player-light-glass.webp",
+      "role": "other",
+      "sha256": "2f075d57e91a1d79a0efe8bd2e1f680dbef67e43a1c2d709f12d3d57c238aabf",
+      "caption": "Player light · Glass"
+    },
+    {
+      "path": "previews/player-dark-normal.webp",
+      "role": "other",
+      "sha256": "396af74039da3bd10682f8736b196fe8042e6e7d3dbe6d59d283053e1a45258a",
+      "caption": "Player dark · Normal"
+    },
+    {
+      "path": "previews/player-dark-glass.webp",
+      "role": "other",
+      "sha256": "a4fa16870d181e3396ca50e1e32bb7aea9282f214c38f86fcb4188236e8fd04c",
+      "caption": "Player dark · Glass"
+    }
+  ],
+  "publishedOn": "2026-11-13"
+}

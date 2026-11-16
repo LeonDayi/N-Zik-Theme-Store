@@ -20,7 +20,7 @@
 
 The [catalog index](catalog/themes/index.json) lists the current revision of each theme. Its manifest shows the author, included files and minimum compatible N-Zik version. Each published revision declares its own compatibility.
 
-**Theme Store is in Beta**, including in the stable N-Zik 8.7.0 app. Published themes require Android version code **97 or later**. Earlier builds can browse the catalog but cannot apply these revisions.
+**Theme Store is in Beta**, including in the stable N-Zik 8.7.0 app. The current built-in gallery revisions require Android version code **99 or later**. Older appearance V1 revisions retain their original compatibility. Earlier builds can browse the catalog and see the update requirement for V2.
 
 <div align="center">
 

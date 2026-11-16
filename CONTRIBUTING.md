@@ -4,14 +4,14 @@ Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Use the [issue forms](https://
 
 ## Submit a theme
 
-1. Fork the repository. Use the [worked example](demo/examples/theme-v1/) and [v1 schemas](catalog/schemas/v1/) to prepare a manifest and appearance file under `catalog/themes/<themeId>/1/`. Choose a new lowercase UUID and include your numeric GitHub ID and login.
+1. Fork the repository. Use the [worked example](demo/examples/theme-v1/) and [format guide](demo/examples/theme-format.md) to prepare a manifest and appearance file under `catalog/themes/<themeId>/1/`. Choose a new lowercase UUID and include your numeric GitHub ID and login.
 2. Put your Normal and Glass preview files in the revision's `previews/` folder. Label them by role and publish only images you have permission to share. Follow the [preview coverage checklist](demo/examples/theme-format.md#preview-coverage) for every submission. You may add extra views. Use demo content to keep private information out of public images.
 3. Set the SHA-256 of the exact appearance and preview files in the manifest, then add the manifest's SHA-256 to [the index](catalog/themes/index.json).
 4. Run `uv run --no-project --with-requirements requirements-validation.txt python .github/scripts/validate_catalog.py` and open a PR. The maintainer verifies authorship, licensing, media and compatibility before merging.
 
 The `Stock` and `Built-in` tags are reserved for verified N-Zik creators, including variants in capitalization, accents, or punctuation.
 
-The Theme Store remains **Beta** in N-Zik 8.7.0. Set `compatibility.minVersionCode` to **97** by default, or a higher code when the theme needs a newer app. Publication rejects missing, `null`, or lower values. The V1 format still accepts legacy compatibility metadata for reading existing packages.
+The Theme Store remains **Beta**. Set `compatibility.minVersionCode` to at least **97** for appearance V1 and at least **99** for appearance V2. Publication rejects missing, `null`, or lower values. The manifest and catalog index use schema version 1 for both appearance versions. The manifest schema still accepts legacy compatibility metadata for reading existing packages.
 
 Compute hashes with `sha256sum <path>` on Linux or `Get-FileHash <path> -Algorithm SHA256` in PowerShell. Use lowercase hashes in JSON. The [README](README.md) explains compatibility and the file layout.
 

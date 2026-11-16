@@ -36,7 +36,7 @@ function makeCandidate() {
 }
 
 function themeFixture({ published = false, submittedOwner = id, publishedOwner = id, publishedLogin = login,
-  compatibility = { minVersionCode: 97 } } = {}) {
+  compatibility = { minVersionCode: 97 }, appearanceVersion = 1 } = {}) {
   const { candidate, put } = makeCandidate();
   const revision = published ? 2 : 1;
   const manifestFile = `${themePath}${revision}/manifest.json`;
@@ -48,6 +48,7 @@ function themeFixture({ published = false, submittedOwner = id, publishedOwner =
     compatibility,
     appearance: { path: 'appearance.json' }, previews: [{ path: 'previews/player-normal.webp' }] };
   const entry = { themeId, revision, manifestSha256: put('head', manifestFile, manifest) };
+  put('head', `${themePath}${revision}/appearance.json`, { schemaVersion: appearanceVersion, categories: {} });
   const reviewsFile = `${themePath}${revision}/reviews.json`;
   put('head', reviewsFile, { schemaVersion: 1, reviews: [] });
   put('ancestor', themeIndex, { schemaVersion: 1, themes: previous });
@@ -84,6 +85,24 @@ test('theme publication requires Android code 97 or later even when updating a l
       assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
     }
   }
+});
+
+test('appearance v2 publication requires Android code 99 or later', () => {
+  for (const published of [false, true]) {
+    for (const minVersionCode of [null, 97, 98, 99, 100]) {
+      const { candidate, entry } = themeFixture({ published, appearanceVersion: 2, compatibility: { minVersionCode } });
+      if (minVersionCode < 99) {
+        assert.throws(() => themeSubmission(candidate, id, login, themeId), /version code 99/);
+      } else {
+        assert.deepEqual(themeSubmission(candidate, id, login, themeId).index.themes, [entry]);
+      }
+    }
+  }
+});
+
+test('theme publication rejects an unsupported appearance version', () => {
+  const { candidate } = themeFixture({ appearanceVersion: 3 });
+  assert.throws(() => themeSubmission(candidate, id, login, themeId), /Unsupported appearance schema version/);
 });
 
 test('theme approval rejects unrelated files and changes to existing revisions', () => {

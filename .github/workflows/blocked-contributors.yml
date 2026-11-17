@@ -12,6 +12,8 @@ on:
 permissions:
   actions: write
   contents: write
+  checks: read
+  statuses: read
   issues: write
   pull-requests: write
 concurrency:
@@ -21,6 +23,7 @@ concurrency:
 jobs:
   moderation:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - if: github.event.action == 'labeled' && github.event.label.name == 'accepted'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -75,13 +78,15 @@ jobs:
               }
             }
             if (context.eventName === 'workflow_dispatch') {
-              for (const [name, color] of Object.entries({ ...statusLabels, ...typeLabels })) {
-                await ensureLabel(name, color);
-              }
-              for (const name of Object.keys(reasons)) await ensureLabel(name, 'f9d0c4');
-              await ensureLabel('cleanup pending', 'd93f0b');
               const number = String(event.inputs?.pull_request_number ?? '').trim();
-              if (!number) return;
+              if (!number) {
+                for (const [name, color] of Object.entries({ ...statusLabels, ...typeLabels })) {
+                  await ensureLabel(name, color);
+                }
+                for (const name of Object.keys(reasons)) await ensureLabel(name, 'f9d0c4');
+                await ensureLabel('cleanup pending', 'd93f0b');
+                return;
+              }
               if (!/^[1-9]\d*$/.test(number) || !Number.isSafeInteger(Number(number))) {
                 throw new Error('Enter a valid pull request number to retry cleanup.');
               }
@@ -117,7 +122,7 @@ jobs:
                 ? 'The waiting approval was invalidated. A maintainer must review and accept this theme again.'
                 : 'Theme accepted; waiting for the creator profile to be published. The approved revision will resume automatically after profile publication.');
               if (comment) await github.rest.issues.updateComment({ ...context.repo, comment_id: comment.id, body });
-              else await github.rest.issues.createComment({ ...context.repo, issue_number: number, body });
+              else await postComment({ ...context.repo, issue_number: number, body });
             }
             async function approvalEvent(number) {
               const events = await github.paginate(github.rest.issues.listEvents, {
@@ -165,14 +170,6 @@ jobs:
                 }
               }
             }
-            if (isThemeSubmission && (event.action === 'synchronize' || event.action === 'closed' ||
-                (event.action === 'unlabeled' && event.label?.name === 'accepted') ||
-                (event.action === 'labeled' && ['refused', 'ban'].includes(event.label?.name)))) {
-              for (const { comment, state } of await waitingComments(pull.number)) {
-                if (!state.invalid) await saveWaiting(pull.number, { ...state, invalid: true }, comment);
-              }
-            }
-            if (event.action === 'unlabeled') return;
             const labelAdded = event.action === 'labeled' ? event.label.name : '';
             if (labelAdded) {
               if ((!['accepted', 'refused', 'ban'].includes(labelAdded) && !Object.hasOwn(reasons, labelAdded)) || (pull.merged && labelAdded !== 'accepted')) return;
@@ -181,6 +178,152 @@ jobs:
               });
               if (!['admin', 'maintain', 'write'].includes(access.permission)) return;
             }
+            // Keep comments deliverable after publication/refusal has locked the PR.
+            async function postComment(args) {
+              const { data: item } = await github.rest.pulls.get({ ...context.repo, pull_number: args.issue_number });
+              if (!item.locked) return github.rest.issues.createComment(args);
+              await github.rest.issues.unlock({ ...context.repo, issue_number: args.issue_number });
+              try { return await github.rest.issues.createComment(args); }
+              finally { await github.rest.issues.lock({ ...context.repo, issue_number: args.issue_number,
+                ...(item.active_lock_reason ? { lock_reason: item.active_lock_reason } : {}) }); }
+            }
+            const moderationPath = '.github/workflows/blocked-contributors.yml';
+            const validationPath = '.github/workflows/validate-catalog.yml';
+            const workflowPath = run => run.path?.split('@')[0];
+            async function headChecks(sha) {
+              const [checks, statuses, runs] = await Promise.all([
+                github.paginate(github.rest.checks.listForRef, { ...context.repo, ref: sha, filter: 'latest', per_page: 100 }),
+                github.paginate(github.rest.repos.listCommitStatusesForRef, { ...context.repo, ref: sha, per_page: 100 }),
+                github.paginate(github.rest.actions.listWorkflowRunsForRepo, { ...context.repo, head_sha: sha, per_page: 100 })
+              ]);
+              const exactRuns = runs.filter(run => run.head_sha === sha);
+              const suites = new Map(exactRuns.map(run => [run.check_suite_id, run]));
+              const latest = new Map();
+              function keep(key, item) {
+                if (!latest.has(key) || item.id > latest.get(key).id) latest.set(key, item);
+              }
+              for (const check of checks) {
+                if (check.head_sha !== sha || workflowPath(suites.get(check.check_suite?.id) ?? {}) === moderationPath) continue;
+                // Never exclude another app's check merely because it is named moderation.
+                const owner = suites.get(check.check_suite?.id)?.workflow_id ?? check.app?.id;
+                keep(`check:${owner}:${check.name}`, { id: check.id, name: check.name,
+                  pending: check.status !== 'completed', success: check.conclusion === 'success',
+                  result: check.conclusion ?? check.status, url: check.html_url });
+              }
+              for (const status of statuses) {
+                keep(`status:${status.context}`, { id: status.id, name: status.context,
+                  pending: status.state === 'pending', success: status.state === 'success',
+                  result: status.state, url: status.target_url });
+              }
+              // Also see queued jobs before GitHub has created their check runs.
+              const latestRuns = new Map();
+              for (const run of exactRuns) {
+                if (workflowPath(run) === moderationPath) continue;
+                const key = `${run.workflow_id}:${run.event}:${run.head_branch}`;
+                if (!latestRuns.has(key) || run.id > latestRuns.get(key).id) latestRuns.set(key, run);
+              }
+              for (const run of latestRuns.values()) keep(`workflow:${run.workflow_id}:${run.event}:${run.head_branch}`,
+                { id: run.id, name: run.name, pending: run.status !== 'completed',
+                  success: run.conclusion === 'success', result: run.conclusion ?? run.status, url: run.html_url });
+              const registered = [...latestRuns.values()].some(run => workflowPath(run) === validationPath)
+                && checks.some(check => check.head_sha === sha && check.name === 'validate'
+                  && workflowPath(suites.get(check.check_suite?.id) ?? {}) === validationPath);
+              const items = [...latest.values()];
+              return { failures: items.filter(item => !item.pending && !item.success),
+                pending: !registered || items.some(item => item.pending), registered };
+            }
+            async function reportCheckFailure(item, failures) {
+              // Only this exception is allowed through a failed gate; truthful merge
+              // state and human refusal/ban decisions are preserved.
+              const labels = new Set(item.labels.map(label => label.name));
+              for (const name of item.merged ? ['accepted', 'in review'] : ['accepted', 'merged']) {
+                if (labels.has(name)) {
+                  try { await github.rest.issues.removeLabel({ ...target, name }); }
+                  catch (error) { if (error.status !== 404) throw error; }
+                }
+              }
+              const identity = failures.map(check => [check.name, check.result, check.url]).sort();
+              const marker = '<!-- nzik-check-failure ' + item.head.sha + ' ' +
+                require('node:crypto').createHash('sha256').update(JSON.stringify(identity)).digest('hex') + ' -->';
+              const comments = await github.paginate(github.rest.issues.listComments, { ...target, per_page: 100 });
+              if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.user?.type === 'Bot'
+                  && comment.body?.startsWith(marker))) {
+                const details = failures.map(check => `- ${check.url ? `[${check.name}](${check.url})` : check.name}: ${check.result}`).join('\n');
+                await postComment({ ...target, body: marker + '\n@NEVARLeVrai Checks blocked moderation for commit `' +
+                  item.head.sha + '`. Review the failures and accept again after they pass.\n\n' + details });
+              }
+              core.setFailed('Submission checks are unsuccessful. Publication and cleanup were stopped.');
+            }
+            async function waitForHeadChecks(expected, approval, attempts = 150) {
+              for (let attempt = 0; attempt <= attempts; attempt++) {
+                const { data: live } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+                const labels = new Set(live.labels.map(label => label.name));
+                if (live.head.sha !== expected.head.sha || live.head.ref !== expected.head.ref ||
+                    live.head.repo?.id !== expected.head.repo?.id || live.user.id !== expected.user.id ||
+                    live.base.ref !== expected.base.ref || live.state !== expected.state || live.merged !== expected.merged ||
+                    (approval && (!labels.has('accepted') || labels.has('refused') || labels.has('ban') ||
+                      (await approvalEvent(live.number))?.id !== approval.id))) {
+                  core.setFailed('The submission or approval changed while waiting. Review and accept the current revision again.');
+                  return null;
+                }
+                const result = await headChecks(live.head.sha);
+                // Close the API-read race before reporting a failure or allowing writes.
+                const { data: confirmed } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+                if (confirmed.head.sha !== live.head.sha || confirmed.head.ref !== live.head.ref ||
+                    confirmed.head.repo?.id !== live.head.repo?.id || confirmed.user.id !== live.user.id ||
+                    confirmed.base.ref !== live.base.ref || confirmed.state !== live.state ||
+                    confirmed.merged !== live.merged || confirmed.draft !== live.draft ||
+                    JSON.stringify(confirmed.labels.map(label => label.name).sort()) !==
+                      JSON.stringify(live.labels.map(label => label.name).sort()) ||
+                    (approval && (await approvalEvent(confirmed.number))?.id !== approval.id)) {
+                  core.setFailed('The submission changed while checking its checks. Review the current revision.');
+                  return null;
+                }
+                if (result.failures.length) { await reportCheckFailure(confirmed, result.failures); return null; }
+                if (!result.pending) return confirmed;
+                if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 10000));
+              }
+              core.notice('Checks are still pending or catalog validation has not registered. No moderation actions were taken; rerun after checks finish.');
+              return null;
+            }
+            const { data: gateStart } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+            const gateApproval = labelAdded === 'accepted' && !gateStart.merged ? await approvalEvent(pull.number) : null;
+            if (labelAdded === 'accepted' && !gateStart.merged &&
+                (gateStart.head.sha !== pull.head.sha || !gateApproval || gateApproval.event !== 'labeled' ||
+                  gateApproval.label?.name !== 'accepted')) {
+              core.setFailed('The approved submission changed. Review and accept the current revision again.');
+              return;
+            }
+            if (gateApproval) {
+              // A queued older run must not borrow a later label from an actor
+              // who can label issues but is not authorized to publish submissions.
+              if (!gateApproval.actor?.login) {
+                core.setFailed('The current acceptance has no verifiable maintainer. Review and accept again.');
+                return;
+              }
+              const { data: approvalAccess } = await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo, username: gateApproval.actor.login
+              });
+              if (!['admin', 'maintain', 'write'].includes(approvalAccess.permission)) {
+                core.setFailed('The current acceptance was not applied by an authorized maintainer.');
+                return;
+              }
+            }
+            const gated = await waitForHeadChecks(gateStart, gateApproval);
+            if (!gated) return;
+            if (isThemeSubmission && (event.action === 'synchronize' || event.action === 'closed' ||
+                (event.action === 'unlabeled' && event.label?.name === 'accepted') ||
+                (event.action === 'labeled' && ['refused', 'ban'].includes(event.label?.name)))) {
+              for (const { comment, state } of await waitingComments(pull.number)) {
+                if (!state.invalid) await saveWaiting(pull.number, { ...state, invalid: true }, comment);
+              }
+            }
+            if (event.action === 'synchronize' && !gated.merged && gated.labels.some(label => label.name === 'accepted')) {
+              await github.rest.issues.removeLabel({ ...target, name: 'accepted' });
+              core.notice('The revision changed. A maintainer must review and accept it again.');
+              return;
+            }
+            if (event.action === 'unlabeled') return;
             const legacyIndexPath = 'catalog/themes/index.json';
             const currentIndexPath = 'catalog/themes/index-v2.json';
             const themeIndexPaths = [legacyIndexPath, currentIndexPath];
@@ -255,7 +398,7 @@ jobs:
               core.setFailed('Cleanup retry requires an author-owned Theme Store submission branch.');
               return;
             }
-            const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+            const current = gated;
             if (current.merged && event.action !== 'closed' && event.action !== 'cleanup_retry' &&
                 !(managedSubmission && labelAdded === 'accepted')) return;
             const currentLabels = new Set(current.labels.map(label => label.name));
@@ -540,7 +683,7 @@ jobs:
                 : `Submission branch cleanup is pending. The bot will only ${state.decision === 'merged' ? 'delete the branch at' : 'reset'} commit ${state.head}; newer work is preserved. ` +
                   `After restoring fork access, rerun this job or run Blocked contributors with pull_request_number=${pull.number}.`);
               if (comment) await github.rest.issues.updateComment({ ...context.repo, comment_id: comment.id, body });
-              else await github.rest.issues.createComment({ ...target, body });
+              else await postComment({ ...target, body });
               if (complete) {
                 try { await github.rest.issues.removeLabel({ ...target, name: 'cleanup pending' }); }
                 catch (error) { if (error.status !== 404) throw error; }
@@ -566,7 +709,7 @@ jobs:
               if (pending) await github.rest.issues.updateComment({ ...context.repo, comment_id: pending.id,
                 body: '<!-- nzik-cleanup-cancelled -->\nCleanup was cancelled because newer submission work was detected. ' +
                   'The branch was preserved for a fresh review.' });
-              await github.rest.issues.createComment({ ...target, body: marker + '\n' +
+              await postComment({ ...target, body: marker + '\n' +
                 `The refusal concerned commit ${expectedSha}, but this submission now points to ${current.head.sha}. ` +
                 'The newer work was preserved and the pull request remains open for a fresh review.' });
               core.setFailed('The submission changed after refusal. Review the new commit before refusing it.');
@@ -624,7 +767,7 @@ jobs:
                 const marker = '<!-- nzik-submission-merged -->';
                 const comments = await github.paginate(github.rest.issues.listComments, target);
                 if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
-                  await github.rest.issues.createComment({
+                  await postComment({
                     ...target,
                     body: marker + '\n' + (isWithdrawal
                       ? 'Your theme withdrawal was accepted. The theme and its published files were removed from the catalog.'
@@ -853,6 +996,7 @@ jobs:
                 core.setFailed('The pull request or main changed during validation. Reapply accepted after review.');
                 return;
               }
+              if (!await waitForHeadChecks(live, gateApproval, 0)) return;
               const token = process.env.THEME_STORE_MERGE_TOKEN;
               if (!token) throw new Error('The GitHub workflow token is missing.');
               candidate.publishValidatedMerge(`Merge Theme Store submission #${pull.number}`, token);
@@ -934,7 +1078,7 @@ jobs:
             const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pull.number });
             const marker = '<!-- nzik-contribution-block -->';
             if (!comments.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker))) {
-              await github.rest.issues.createComment({
+              await postComment({
                 ...context.repo, issue_number: pull.number,
                 body: marker + '\n' + (cleaned ? 'Submission removed from the branch.\n\n' : '')
                   + message.split('\r').join(' ')

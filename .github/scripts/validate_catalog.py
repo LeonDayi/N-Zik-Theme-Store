@@ -17,6 +17,7 @@ THEME_DOCUMENT_LIMIT = 128 * 1024
 PREVIEW_LIMIT = 4 * 1024 * 1024
 CATALOG_SNAPSHOT_LIMIT = 16 * 1024 * 1024
 DEMO_INDEX_LIMIT = 8 * 1024
+STOCK_INDEX_LIMIT = 64 * 1024
 MINIMUM_PUBLISHED_VERSION_CODES = {1: 97, 2: 99}
 LEGACY_MAX_VERSION_CODE = MINIMUM_PUBLISHED_VERSION_CODES[2] - 1
 
@@ -273,6 +274,55 @@ def validate_demo_assets():
     validate_assets(visuals["banners"], banners)
 
 
+STOCK_SCENES = (*BASE_SCENES, "player-playing", "miniplayer-playing", "menu", "dialog")
+STOCK_PREVIEW_PATHS = {
+    f"previews/{scene}-{brightness}-{variant}.webp"
+    for scene in STOCK_SCENES for brightness in ("light", "dark") for variant in ("normal", "glass")
+}
+
+
+def validate_stock_previews(folder=None):
+    folder = ROOT / "demo" / "stock" if folder is None else Path(folder)
+    path = folder / "index.json"
+    index = load_json(path, STOCK_INDEX_LIMIT)
+    if not isinstance(index, dict) or set(index) != {"schemaVersion", "previews"}:
+        raise ValueError(f"{path}: invalid Stock index fields")
+    if type(index["schemaVersion"]) is not int or index["schemaVersion"] != 1:
+        raise ValueError(f"{path}: unsupported Stock index version")
+    entries = index["previews"]
+    if not isinstance(entries, list) or len(entries) != 64:
+        raise ValueError(f"{path}: Stock requires exactly 64 previews")
+    paths = set()
+    for entry in entries:
+        if (not isinstance(entry, dict) or not {"path", "role", "sha256"} <= set(entry)
+                or set(entry) - {"path", "role", "sha256", "caption"}):
+            raise ValueError(f"{path}: invalid Stock preview fields")
+        name = entry["path"]
+        if not isinstance(name, str) or name not in STOCK_PREVIEW_PATHS or name in paths:
+            raise ValueError(f"{path}: invalid or duplicate Stock preview path")
+        paths.add(name)
+        scene = name.removeprefix("previews/").rsplit("-", 2)[0]
+        if entry["role"] != PREVIEW_ROLES.get(scene, "other"):
+            raise ValueError(f"{path}: incorrect Stock preview role")
+        if not isinstance(entry["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) is None:
+            raise ValueError(f"{path}: invalid Stock preview SHA-256")
+        if "caption" in entry and (not isinstance(entry["caption"], str) or len(entry["caption"]) > 160):
+            raise ValueError(f"{path}: invalid Stock preview caption")
+        image_path = folder / name
+        if image_path.is_symlink() or image_path.parent.is_symlink():
+            raise ValueError(f"{image_path}: Stock assets cannot be symlinks")
+        validate_image(image_path, entry["sha256"])
+        with Image.open(image_path, formats=["WEBP"]) as image:
+            if image.size != (862, 1920) or getattr(image, "n_frames", 1) != 1:
+                raise ValueError(f"{image_path}: Stock previews must be static 862x1920 WebP")
+    if paths != STOCK_PREVIEW_PATHS:
+        raise ValueError(f"{path}: incomplete Stock scene matrix")
+    files = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()}
+    if files != {"index.json", *STOCK_PREVIEW_PATHS}:
+        raise ValueError(f"{folder}: unexpected Stock assets")
+    return index
+
+
 def validate_theme_index(index_path, version, appearance_validators, verified_ids, creator_ids):
     catalog = validate_json(index_path, load_schema("catalog", version))
     manifest_validator = load_schema("theme", version)
@@ -303,6 +353,7 @@ def validate_theme_index(index_path, version, appearance_validators, verified_id
 
 def main():
     validate_demo_assets()
+    validate_stock_previews()
     manifest_validator = load_schema("theme")
     appearance_validators = {version: load_schema("appearance", version) for version in MINIMUM_PUBLISHED_VERSION_CODES}
     reviews_validator = load_schema("reviews")

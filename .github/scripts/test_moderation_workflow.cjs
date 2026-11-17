@@ -95,7 +95,7 @@ function harness({ race, missingInstallation = false, environment = {} } = {}) {
       return { status: 201, ok: true, json: async () => ({ token: 'installation-token' }) };
     },
     require: name => {
-      if (name === 'node:crypto') return { sign: () => Buffer.from('signature') };
+      if (name === 'node:crypto') return { ...require('node:crypto'), sign: () => Buffer.from('signature') };
       if (name === 'node:fs') return {
         mkdtempSync: prefix => { assert.equal(prefix, path.join(temporaryRoot, 'nzik-fork-ref-')); return temporaryDirectory; },
         rmSync: (directory, options) => removed.push({ directory, options }),
@@ -167,6 +167,8 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
   initial.head.sha = original;
   const missing = () => Object.assign(new Error('Not found'), { status: 404 });
   const github = { rest: {
+    checks: { listForRef: async args => ({ data: [{ id: 1, name: 'validate', head_sha: args.ref, status: 'completed', conclusion: 'success', check_suite: { id: 1 } }] }) },
+    actions: { listWorkflowRunsForRepo: async args => ({ data: [{ id: 1, workflow_id: 1, head_sha: args.head_sha, check_suite_id: 1, path: '.github/workflows/validate-catalog.yml', status: 'completed', conclusion: 'success' }] }) },
     pulls: {
       get: async () => ({ data: snapshot() }),
       update: async args => {
@@ -181,6 +183,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
       },
     },
     repos: {
+      listCommitStatusesForRef: async () => ({ data: [] }),
       getCollaboratorPermissionLevel: async () => ({ data: { permission: 'write' } }),
       getContent: async () => ({ data: { sha: main,
         content: Buffer.from(JSON.stringify({ schemaVersion: 1, accounts })).toString('base64') } }),
@@ -212,18 +215,20 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
       addLabels: async args => { args.labels.forEach(name => labels.add(name)); },
       removeLabel: async args => { labels.delete(args.name); },
       listComments: async () => ({ data: comments }),
-      listEvents: async () => ({ data: [{ id: approvalId, event: 'labeled', label: { name: 'accepted' } }] }),
+      listEvents: async () => ({ data: [{ id: approvalId, event: 'labeled', label: { name: 'accepted' }, actor: { login: 'Moderator' } }] }),
       createComment: async args => {
+        if (current.locked) throw new Error('Unable to create comment because issue is locked');
         comments.push({ id: comments.length + 1, user: { login: 'github-actions[bot]', type: 'Bot' }, body: args.body });
       },
       updateComment: async args => { comments.find(comment => comment.id === args.comment_id).body = args.body; },
+      unlock: async () => { current.locked = false; },
       lock: async () => { current.locked = true; },
     },
   } };
   github.paginate = async (method, args) => (await method(args)).data;
   const temp = path.join(path.resolve(os.tmpdir()), 'nzik-lifecycle-test');
   const globals = {
-    Buffer, github,
+    Buffer, github, setTimeout: callback => callback(),
     process: { env: { PATH: process.env.PATH, THEME_STORE_GITHUB_APP_PRIVATE_KEY: 'private-key',
       GITHUB_WORKSPACE: temp, THEME_STORE_MERGE_TOKEN: 'upstream-token' } },
     setTimeout: callback => callback(),
@@ -260,7 +265,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
           },
         }),
       };
-      if (name === 'node:crypto') return { sign: () => Buffer.from('signature') };
+      if (name === 'node:crypto') return { ...require('node:crypto'), sign: () => Buffer.from('signature') };
       if (name === 'node:fs') return { mkdtempSync: () => temp, rmSync() {} };
       if (name === 'node:child_process') return { execFileSync: (_command, args) => {
         if (args[0] !== 'push') return Buffer.alloc(0);
@@ -287,7 +292,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
     },
   };
   return {
-    current, labels, comments, failures, faults, writes, publications, otherPulls,
+    current, labels, comments, failures, faults, writes, publications, otherPulls, github,
     head: () => refHead, blocked: () => accounts,
     publishCreator() { publishedCreator = true; },
     reapprove() { approvalId++; },
@@ -797,7 +802,7 @@ function waitingResumeHarness() {
   } };
   github.paginate = async (method, args) => (await method(args)).data;
   const helpers = script.slice(script.indexOf('            const waitingMarker'),
-    script.indexOf('            if (isThemeSubmission &&'));
+    script.indexOf('            const labelAdded'));
   const context = vm.createContext({ Buffer, require, github, isSubmission: true,
     context: { repo: { owner: 'N-Zik-Group', repo: 'N-Zik-Theme-Store' } },
     readFile: async path => {
@@ -867,3 +872,234 @@ test('delayed profile merge confirmation resumes waiting themes before publicati
   await fn({ merged: false });
   assert.deepEqual(calls, ['poll', 'resume', 'announce']);
 });
+
+for (const condition of ['pending', 'missing validation', 'pending status', 'pending workflow']) {
+  test(`check gate permits no moderation writes with ${condition}`, async () => {
+    const h = lifecycle({ decision: 'accepted' });
+    if (condition === 'pending') h.github.rest.checks.listForRef = async args => ({ data: [
+      { id: 1, name: 'validate', head_sha: args.ref, status: 'in_progress', check_suite: { id: 1 } }
+    ] });
+    if (condition === 'missing validation') h.github.rest.checks.listForRef = async () => ({ data: [] });
+    if (condition === 'pending status') h.github.rest.repos.listCommitStatusesForRef = async () => ({ data: [
+      { id: 1, context: 'external', state: 'pending' }
+    ] });
+    if (condition === 'pending workflow') {
+      const list = h.github.rest.actions.listWorkflowRunsForRepo;
+      h.github.rest.actions.listWorkflowRunsForRepo = async args => ({ data: [...(await list(args)).data,
+        { id: 2, workflow_id: 2, head_sha: args.head_sha, status: 'queued', path: '.github/workflows/external.yml' }] });
+    }
+    const before = [...h.labels];
+    await h.run({ action: 'opened' });
+    assert.deepEqual([...h.labels], before);
+    assert.equal(h.comments.length, 0);
+    assert.equal(h.writes.length, 0);
+    assert.equal(h.publications.length, 0);
+    assert.equal(h.current.state, 'open');
+    assert.equal(h.current.locked, false);
+  });
+}
+
+for (const result of ['failure', 'cancelled', 'timed_out', 'neutral', 'skipped', 'action_required']) {
+  test(`check gate blocks ${result}, reconciles success labels and deduplicates failure notification`, async () => {
+    const h = lifecycle({ decision: 'accepted' });
+    h.labels.add('merged'); h.labels.add('refused'); h.labels.add('ban');
+    const list = h.github.rest.checks.listForRef;
+    h.github.rest.checks.listForRef = async args => ({ data: [...(await list(args)).data,
+      { id: 2, name: 'external', head_sha: args.ref, status: 'completed', conclusion: result,
+        app: { id: 3 }, html_url: 'https://example.test/check/2' }] });
+    await h.run({ action: 'opened' });
+    await h.run({ action: 'opened' });
+    assert.equal(h.labels.has('accepted'), false);
+    assert.equal(h.labels.has('merged'), false);
+    assert.equal(h.labels.has('refused'), true);
+    assert.equal(h.labels.has('ban'), true);
+    assert.equal(h.comments.length, 1);
+    assert.match(h.comments[0].body, /@NEVARLeVrai/);
+    assert.match(h.comments[0].body, /https:\/\/example.test\/check\/2/);
+    assert.equal(h.writes.length, 0);
+    assert.equal(h.publications.length, 0);
+    assert.equal(h.current.state, 'open');
+  });
+}
+
+test('check gate ignores every own workflow suite, but another app named moderation still blocks', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  const list = h.github.rest.actions.listWorkflowRunsForRepo;
+  h.github.rest.actions.listWorkflowRunsForRepo = async args => ({ data: [...(await list(args)).data,
+    ...[2, 3].map(id => ({ id, workflow_id: 8, head_sha: args.head_sha, check_suite_id: id,
+      path: '.github/workflows/blocked-contributors.yml', status: id === 2 ? 'queued' : 'completed', conclusion: 'failure' }))] });
+  const checks = h.github.rest.checks.listForRef;
+  h.github.rest.checks.listForRef = async args => ({ data: [...(await checks(args)).data,
+    ...[2, 3].map(id => ({ id, name: 'moderation', head_sha: args.ref, status: 'completed',
+      conclusion: 'failure', check_suite: { id } }))] });
+  await h.run();
+  assert.equal(h.publications.length, 1);
+  const other = lifecycle({ decision: 'accepted' });
+  const good = other.github.rest.checks.listForRef;
+  other.github.rest.checks.listForRef = async args => ({ data: [...(await good(args)).data,
+    { id: 9, name: 'moderation', app: { id: 9 }, head_sha: args.ref, status: 'completed', conclusion: 'failure' }] });
+  await other.run();
+  assert.equal(other.publications.length, 0);
+  assert.match(other.comments[0].body, /moderation/);
+});
+
+test('check gate paginates all APIs and keeps latest context and check name across pages', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  const checks = h.github.rest.checks.listForRef;
+  const methods = new Set([checks, h.github.rest.actions.listWorkflowRunsForRepo, h.github.rest.repos.listCommitStatusesForRef]);
+  const paginated = new Set();
+  const paginate = h.github.paginate;
+  h.github.paginate = async (method, args) => {
+    if (!methods.has(method)) return paginate(method, args);
+    assert.equal(args.per_page, 100);
+    if (method === checks) assert.equal(args.filter, 'latest');
+    paginated.add(method);
+    if (method === h.github.rest.repos.listCommitStatusesForRef) return [
+      { id: 5, context: 'deploy', state: 'failure' }, { id: 6, context: 'deploy', state: 'success' }];
+    if (method === checks) return [...await paginate(method, args),
+      { id: 5, name: 'external', app: { id: 4 }, head_sha: args.ref, status: 'completed', conclusion: 'failure' },
+      { id: 6, name: 'external', app: { id: 4 }, head_sha: args.ref, status: 'completed', conclusion: 'success' },
+      { id: 7, name: 'unrelated', head_sha: concurrent, status: 'completed', conclusion: 'failure' }];
+    return paginate(method, args);
+  };
+  await h.run();
+  assert.equal(paginated.size, 3);
+  assert.equal(h.publications.length, 1);
+});
+
+for (const race of ['head', 'approval', 'labels']) {
+  test(`check gate stops ${race} change during polling`, async () => {
+    const h = lifecycle({ decision: 'accepted' });
+    const list = h.github.rest.checks.listForRef;
+    h.github.rest.checks.listForRef = async args => {
+      if (race === 'head') h.push(concurrent);
+      if (race === 'approval') h.reapprove();
+      if (race === 'labels') h.labels.delete('accepted');
+      return list(args);
+    };
+    await h.run();
+    assert.equal(h.publications.length, 0);
+    assert.equal(h.writes.length, 0);
+    assert.equal(h.comments.length, 0);
+    assert.ok(h.failures.some(message => /changed/.test(message)));
+  });
+}
+
+test('check gate rechecks all checks immediately before publication', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  const list = h.github.rest.repos.listCommitStatusesForRef;
+  let reads = 0;
+  h.github.rest.repos.listCommitStatusesForRef = async args => ++reads === 1 ? list(args) : ({ data: [
+    { id: 3, context: 'late check', state: 'failure', target_url: 'https://example.test/late' }] });
+  await h.run();
+  assert.equal(h.publications.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.labels.has('accepted'), false);
+  assert.match(h.comments[0].body, /late check/);
+});
+
+test('locked failure comments restore lock and preserve truthful merged state', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  h.current.merged = true; h.current.state = 'closed'; h.current.locked = true;
+  h.labels.add('merged');
+  h.github.rest.repos.listCommitStatusesForRef = async () => ({ data: [
+    { id: 3, context: 'external', state: 'error', target_url: 'https://example.test/error' }] });
+  await h.run({ dispatch: true });
+  assert.equal(h.comments.length, 1);
+  assert.equal(h.labels.has('merged'), true);
+  assert.equal(h.labels.has('accepted'), false);
+  assert.equal(h.current.locked, true);
+  assert.equal(h.current.merged, true);
+  assert.equal(h.writes.length, 0);
+});
+
+test('publication retry writes required comments on locked PR and restores final lock', async () => {
+  const h = lifecycle({ decision: 'accepted', deletionFailure: true });
+  await h.run();
+  assert.equal(h.current.locked, true);
+  h.faults.deletion = false;
+  await h.run({ dispatch: true });
+  assert.equal(h.current.locked, true);
+  assert.equal(h.labels.has('cleanup pending'), false);
+  assert.equal(h.publications.length, 1);
+});
+
+
+test('cleanup retry completes saved state after branch deletion and locked report failure', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  const update = h.github.rest.issues.updateComment;
+  let interrupt = true;
+  h.github.rest.issues.updateComment = async args => {
+    if (interrupt && args.body.includes('"completed":true')) {
+      interrupt = false;
+      throw new Error('Transient final report failure');
+    }
+    return update(args);
+  };
+  await assert.rejects(h.run(), /Transient final report failure/);
+  assert.equal(h.head(), null);
+  assert.equal(h.current.locked, true);
+  assert.equal(h.labels.has('cleanup pending'), true);
+  await h.run({ dispatch: true });
+  assert.equal(h.head(), null);
+  assert.equal(h.current.locked, true);
+  assert.equal(h.labels.has('cleanup pending'), false);
+  assert.ok(h.comments.some(comment => comment.body.includes('"completed":true')));
+  assert.equal(h.publications.length, 1);
+});
+
+test('locked comment delivery restores lock even if comment creation fails', async () => {
+  const helpers = script.slice(script.indexOf('            async function postComment('),
+    script.indexOf('            const moderationPath'));
+  const calls = [];
+  const post = vm.runInNewContext(helpers + '\npostComment', {
+    context: { repo: {} }, github: { rest: {
+      pulls: { get: async () => ({ data: { locked: true } }) },
+      issues: { unlock: async () => calls.push('unlock'), lock: async () => calls.push('lock'),
+        createComment: async () => { calls.push('comment'); throw new Error('Network failure'); } }
+    } }
+  });
+  await assert.rejects(post({ issue_number: 7, body: 'status' }), /Network failure/);
+  assert.deepEqual(calls, ['unlock', 'comment', 'lock']);
+});
+
+test('check gate waits through pending checks and publishes only after every context succeeds', async () => {
+  const h = lifecycle({ decision: 'accepted' });
+  let reads = 0;
+  h.github.rest.repos.listCommitStatusesForRef = async () => {
+    ++reads;
+    if (reads <= 2) {
+      assert.equal(h.publications.length, 0);
+      assert.equal(h.writes.length, 0);
+      assert.equal(h.comments.length, 0);
+      return { data: [{ id: 1, context: 'external', state: 'pending' }] };
+    }
+    return { data: [{ id: 2, context: 'external', state: 'success' }] };
+  };
+  await h.run();
+  assert.ok(reads >= 4, 'Initial polling and final publication recheck must both run');
+  assert.equal(h.publications.length, 1);
+});
+
+
+for (const permission of ['triage', 'write', 'maintain', 'admin']) {
+  test(`queued old approval requires current acceptance actor to have ${permission} permission`, async () => {
+    const h = lifecycle({ decision: 'accepted' });
+    h.github.rest.issues.listEvents = async () => ({ data: [
+      { id: 901, event: 'labeled', label: { name: 'accepted' }, actor: { login: 'NewModerator' } }
+    ] });
+    const checked = [];
+    h.github.rest.repos.getCollaboratorPermissionLevel = async args => {
+      checked.push(args.username);
+      return { data: { permission: args.username === 'NewModerator' ? permission : 'write' } };
+    };
+    await h.run();
+    assert.deepEqual(checked, ['Moderator', 'NewModerator']);
+    assert.equal(h.publications.length, permission === 'triage' ? 0 : 1);
+    if (permission === 'triage') {
+      assert.equal(h.writes.length, 0);
+      assert.equal(h.comments.length, 0);
+      assert.ok(h.failures.some(message => /authorized maintainer/.test(message)));
+    }
+  });
+}

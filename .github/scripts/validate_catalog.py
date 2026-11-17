@@ -273,7 +273,7 @@ def validate_demo_assets():
     validate_assets(visuals["banners"], banners)
 
 
-def validate_theme_index(index_path, version, appearance_validators, verified_ids):
+def validate_theme_index(index_path, version, appearance_validators, verified_ids, creator_ids):
     catalog = validate_json(index_path, load_schema("catalog", version))
     manifest_validator = load_schema("theme", version)
     theme_ids = set()
@@ -289,6 +289,8 @@ def validate_theme_index(index_path, version, appearance_validators, verified_id
         manifest_paths.append(manifest_path)
         check_hash(manifest_path, entry["manifestSha256"])
         manifest, appearance = validate_theme(folder, manifest_validator, appearance_validators, published=True)
+        if manifest["author"]["githubId"] not in creator_ids:
+            raise ValueError(f"{manifest_path}: the creator profile must be published before its themes")
         if version == 2 and len(manifest["previews"]) > catalog["previewLimit"]:
             raise ValueError(f"{manifest_path}: gallery exceeds the catalog previewLimit of {catalog['previewLimit']}")
         validate_gallery(manifest, colors=appearance["categories"].get("colors"))
@@ -330,8 +332,8 @@ def main():
     validate_reviews(example, reviews_validator)
 
     themes = CATALOG / "themes"
-    legacy_theme_ids = validate_theme_index(themes / "index.json", 1, appearance_validators, verified_ids)
-    current_theme_ids = validate_theme_index(themes / "index-v2.json", 2, appearance_validators, verified_ids)
+    legacy_theme_ids = validate_theme_index(themes / "index.json", 1, appearance_validators, verified_ids, creator_ids)
+    current_theme_ids = validate_theme_index(themes / "index-v2.json", 2, appearance_validators, verified_ids, creator_ids)
 
     for reviews in (CATALOG / "themes").glob("*/*/reviews.json"):
         if not (reviews.parent / "manifest.json").is_file():

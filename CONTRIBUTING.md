@@ -4,12 +4,16 @@ Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Use the [issue forms](https://
 
 ## Submit a theme
 
+Your creator profile must be accepted and published in the creator catalog before a theme can be published. A pending profile pull request does not qualify. If a maintainer accepts a theme first, the bot keeps that approved revision waiting and retries it after the profile is published. Changes to the theme or a withdrawn acceptance require a fresh review.
+
 1. Fork the repository. Use the [worked example](demo/examples/theme-v1/) and [format guide](demo/examples/theme-format.md) to prepare a manifest and appearance file under `catalog/themes/<themeId>/1/`. Choose a new lowercase UUID and include your numeric GitHub ID and login.
 2. Put your Normal and Glass preview files in the revision's `previews/` folder. Label them by role and publish only images you have permission to share. Follow the [preview coverage checklist](demo/examples/theme-format.md#preview-coverage) for every submission. You may add extra views. Use demo content to keep private information out of public images.
 3. Set the SHA-256 of the exact appearance and preview files in the manifest, then add the manifest's SHA-256 to [the V2 index](catalog/themes/index-v2.json) for V2 themes or [the V1 index](catalog/themes/index.json) for V1 themes.
 4. Run `uv run --no-project --with-requirements requirements-validation.txt python .github/scripts/validate_catalog.py` and open a PR. The maintainer verifies authorship, licensing, media and compatibility before merging.
 
 The `Stock` and `Built-in` tags are reserved for verified N-Zik creators, including variants in capitalization, accents, or punctuation.
+
+Pull request catalog scans run automatically using validators, dependencies, schemas and demo assets from the trusted base branch. They validate merged catalog data without executing code from the fork. Proposed changes to validation code, schemas or demo tooling need separate review; the full repository tests run on `main` pushes and manual runs.
 
 The Theme Store remains **Beta**. V1 publication accepts Android version codes 97–98 in `compatibility.minVersionCode`. V2 publication requires at least 99. Set the manifest and appearance to the same schema version. Keep `schemaVersion: 1` in both index envelopes.
 

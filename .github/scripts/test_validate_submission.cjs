@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
-const { creatorSubmission, themeSubmission, trustedCandidate } = require('./validate_submission.cjs');
+const { creatorSubmission, themeSubmission, trustedCandidate, publishedCreator } = require('./validate_submission.cjs');
 
 const id = 101;
 const login = 'Creator';
@@ -41,6 +41,8 @@ function themeFixture({ published = false, submittedOwner = id, publishedOwner =
   indexVersion = manifestVersion === 2 ? 2 : 1, previewCount = 1, previewLimit = 80, legacyOnly = false,
   categories = {}, scenes = Array.from({ length: previewCount }, (_, index) => `photo-${index}-normal`) } = {}) {
   const { candidate, put } = makeCandidate();
+  const profileSha256 = put('base', profilePath, { githubId: id, login });
+  put('base', creatorIndex, { schemaVersion: 1, creators: [{ githubId: id, profileSha256 }] });
   const revision = published || legacyOnly ? 2 : 1;
   const manifestFile = `${themePath}${revision}/manifest.json`;
   const oldManifest = { themeId, revision: 1, author: { githubId: publishedOwner, login: publishedLogin } };
@@ -71,6 +73,21 @@ function themeFixture({ published = false, submittedOwner = id, publishedOwner =
   ];
   return { candidate, put, entry };
 }
+
+test('themes require an already published creator profile from trusted main', () => {
+  const { candidate, put } = themeFixture();
+  put('base', creatorIndex, { schemaVersion: 1, creators: [] });
+  put('head', creatorIndex, { schemaVersion: 1, creators: [{ githubId: id, profileSha256: 'a'.repeat(64) }] });
+  assert.equal(publishedCreator(candidate, id), false);
+  assert.throws(() => themeSubmission(candidate, id, login, themeId), /profile must be published/);
+  // A profile added in the same unmerged PR cannot satisfy the prerequisite.
+  const profileSha256 = put('base', profilePath, { githubId: id, login: 'Old-Login' });
+  put('base', creatorIndex, { schemaVersion: 1, creators: [{ githubId: id, profileSha256 }] });
+  assert.equal(publishedCreator(candidate, id), true);
+  assert.doesNotThrow(() => themeSubmission(candidate, id, login, themeId));
+  put('base', profilePath, { githubId: id + 1, login });
+  assert.throws(() => publishedCreator(candidate, id), /Invalid published creator profile/);
+});
 
 test('a creator can publish and update their own theme', () => {
   for (const published of [false, true]) {

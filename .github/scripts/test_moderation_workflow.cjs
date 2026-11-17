@@ -142,7 +142,7 @@ test('moderation workflow script parses', () => {
 });
 
 function lifecycle({ liveHead = original, decision = 'refused', resetFailure = false, deletionFailure = false,
-  approvalRace, resetRace, creatorProfile = false } = {}) {
+  approvalRace, resetRace, creatorProfile = false, publishedCreator = true } = {}) {
   const repo = { owner: 'N-Zik-Group', repo: 'N-Zik-Theme-Store' };
   const labels = new Set([decision, 'reason: other', 'in review']);
   const comments = [];
@@ -155,6 +155,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
   const otherPulls = { upstream: [], fork: [] };
   let refHead = liveHead;
   let accounts = [];
+  let approvalId = 900;
   const current = {
     number: 7, user: { id: 101, login: 'Creator' },
     head: { repo: fork, ref: creatorProfile ? 'nzik/creator-profile-101' : branch, sha: liveHead },
@@ -211,8 +212,9 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
       addLabels: async args => { args.labels.forEach(name => labels.add(name)); },
       removeLabel: async args => { labels.delete(args.name); },
       listComments: async () => ({ data: comments }),
+      listEvents: async () => ({ data: [{ id: approvalId, event: 'labeled', label: { name: 'accepted' } }] }),
       createComment: async args => {
-        comments.push({ id: comments.length + 1, user: { login: 'github-actions[bot]' }, body: args.body });
+        comments.push({ id: comments.length + 1, user: { login: 'github-actions[bot]', type: 'Bot' }, body: args.body });
       },
       updateComment: async args => { comments.find(comment => comment.id === args.comment_id).body = args.body; },
       lock: async () => { current.locked = true; },
@@ -238,6 +240,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
           assert.equal(authorLogin, current.user.login);
           return { index: { schemaVersion: 1, creators: [] } };
         },
+        publishedCreator: () => publishedCreator,
         trustedCandidate: () => ({
           head: original, changes: [], mergeTree: () => null,
           validateRepairedIndex: (index, indexPath) => {
@@ -286,14 +289,16 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
   return {
     current, labels, comments, failures, faults, writes, publications, otherPulls,
     head: () => refHead, blocked: () => accounts,
+    publishCreator() { publishedCreator = true; },
+    reapprove() { approvalId++; },
     push(sha) { refHead = sha; current.head.sha = sha; current.changed_files = 3; },
-    async run({ dispatch = false, eventHead = original, eventLabels = initial.labels } = {}) {
+    async run({ dispatch = false, eventHead = original, eventLabels = initial.labels, action = 'labeled', label = decision, runId = 42 } = {}) {
       const payload = { repository: { id: 1, default_branch: 'main' },
         ...(dispatch ? { inputs: { pull_request_number: '7' } }
-          : { action: 'labeled', label: { name: decision }, sender: { login: 'Moderator' },
+          : { action, label: { name: label }, sender: { login: 'Moderator' },
             pull_request: { ...initial, head: { ...initial.head, sha: eventHead }, labels: eventLabels } }) };
       const context = vm.createContext({ ...globals, context: { repo,
-        eventName: dispatch ? 'workflow_dispatch' : 'pull_request_target', payload } });
+        runId, eventName: dispatch ? 'workflow_dispatch' : 'pull_request_target', payload } });
       await vm.runInContext(`(async () => {\n${script}\n})()`, context);
     },
   };
@@ -715,4 +720,150 @@ test('real Git leases protect reset, repair and deletion on a local bare remote'
     assert.throws(() => context.writeSubmissionRef(fork, branch, initial, next, 'test-token'), /whether its head moved/);
     assert.equal(git('rev-parse', ref), newWork);
   }
+});
+
+test('accepted theme waits without publication or branch writes until creator is published', async () => {
+  const h = lifecycle({ decision: 'accepted', publishedCreator: false });
+  await h.run();
+  await h.run();
+  assert.equal(h.publications.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.current.state, 'open');
+  assert.ok(h.labels.has('accepted'));
+  assert.equal(h.comments.length, 1, 'reruns do not duplicate waiting records');
+  assert.match(h.comments[0].body, /"runId":42/);
+  assert.match(h.comments[0].body, new RegExp(original));
+  h.publishCreator();
+  await h.run();
+  assert.equal(h.publications.length, 1);
+});
+
+for (const mutation of ['synchronize', 'unlabeled', 'refused', 'ban', 'closed']) {
+  test(`waiting approval cannot resume after ${mutation}`, async () => {
+    const h = lifecycle({ decision: 'accepted', publishedCreator: false });
+    await h.run();
+    await h.run({ action: ['refused', 'ban'].includes(mutation) ? 'labeled' : mutation,
+      label: mutation === 'unlabeled' ? 'accepted' : mutation });
+    h.publishCreator();
+    await h.run();
+    assert.equal(h.publications.length, 0);
+    assert.ok(h.comments.some(comment => comment.body.includes('"invalid":true')));
+  });
+}
+
+test('waiting approval rejects changed head and revoked then reapplied acceptance', async () => {
+  const changed = lifecycle({ decision: 'accepted', publishedCreator: false });
+  await changed.run();
+  changed.publishCreator();
+  changed.push(concurrent);
+  await changed.run();
+  assert.equal(changed.publications.length, 0);
+  const revoked = lifecycle({ decision: 'accepted', publishedCreator: false });
+  await revoked.run();
+  revoked.publishCreator();
+  revoked.reapprove();
+  await revoked.run();
+  assert.equal(revoked.publications.length, 0);
+});
+
+function waitingResumeHarness() {
+  const profile = { merged: true, user: { id: 101 }, base: { ref: 'main' } };
+  const item = { number: 7, state: 'open', draft: false, user: { id: 101 }, labels: [{ name: 'accepted' }],
+    head: { sha: original, ref: branch, repo: fork }, base: { ref: 'main' } };
+  const state = { runId: 42, authorId: 101, repositoryId: fork.id, head: original, branch,
+    approvalId: 900, invalid: false, resumed: false };
+  const comment = { id: 1, user: { login: 'github-actions[bot]', type: 'Bot' },
+    body: '<!-- nzik-creator-wait ' + JSON.stringify(state) + ' -->\nWaiting' };
+  const comments = [comment];
+  const approvals = [{ id: 900, event: 'labeled', label: { name: 'accepted' } }];
+  const reruns = [];
+  const blocked = [];
+  const profileBytes = Buffer.from(JSON.stringify({ githubId: 101 }));
+  const index = { schemaVersion: 1, creators: [{ githubId: 101,
+    profileSha256: require('node:crypto').createHash('sha256').update(profileBytes).digest('hex') }] };
+  const run = { event: 'pull_request_target', path: '.github/workflows/blocked-contributors.yml', status: 'completed' };
+  let fail = false;
+  const github = { rest: {
+    issues: {
+      listComments: async () => ({ data: comments }), listEvents: async () => ({ data: approvals }),
+      updateComment: async args => { comment.body = args.body; },
+    },
+    pulls: { list: async () => ({ data: [item] }) },
+    git: { getRef: async () => ({ data: { object: { sha: main } } }) },
+    actions: { getWorkflowRun: async () => ({ data: run }), reRunWorkflow: async args => {
+      if (fail) throw new Error('transient rerun failure');
+      reruns.push(args.run_id);
+    } },
+  } };
+  github.paginate = async (method, args) => (await method(args)).data;
+  const helpers = script.slice(script.indexOf('            const waitingMarker'),
+    script.indexOf('            if (isThemeSubmission &&'));
+  const context = vm.createContext({ Buffer, require, github, isSubmission: true,
+    context: { repo: { owner: 'N-Zik-Group', repo: 'N-Zik-Theme-Store' } },
+    readFile: async path => {
+      if (path.endsWith('index.json')) return JSON.stringify(index);
+      if (path.endsWith('profile.json')) return profileBytes;
+      return JSON.stringify({ schemaVersion: 1, accounts: blocked });
+    },
+  });
+  const resume = vm.runInContext(helpers + '\nresumeWaitingThemes', context);
+  return { profile, item, comment, comments, approvals, reruns, blocked, index, run,
+    failRerun(value) { fail = value; }, resume: () => resume(profile) };
+}
+
+test('profile merge resumes the original approved workflow exactly once', async () => {
+  const h = waitingResumeHarness();
+  await h.resume();
+  await h.resume();
+  assert.deepEqual(h.reruns, [42]);
+  assert.match(h.comment.body, /"resumed":true/);
+  assert.match(workflow, /types: \[.*closed/);
+  assert.match(script, /if \(confirmed\?\.merged && confirmed.merged_at\) \{\s+await resumeWaitingThemes\(confirmed\);/);
+});
+
+for (const condition of ['changed head', 'changed fork', 'unrelated author', 'refused', 'ban',
+  'no acceptance', 'revoked acceptance', 'invalidated', 'forged comment', 'unpublished profile', 'blocked account', 'running workflow']) {
+  test(`profile merge does not resume waiting theme with ${condition}`, async () => {
+    const h = waitingResumeHarness();
+    if (condition === 'changed head') h.item.head.sha = concurrent;
+    if (condition === 'changed fork') h.item.head.repo = { ...fork, id: 999 };
+    if (condition === 'unrelated author') h.item.user.id = 202;
+    if (condition === 'refused' || condition === 'ban') h.item.labels.push({ name: condition });
+    if (condition === 'no acceptance') h.item.labels = [];
+    if (condition === 'revoked acceptance') h.approvals.push({ id: 901, event: 'labeled', label: { name: 'accepted' } });
+    if (condition === 'invalidated') h.comment.body = h.comment.body.replace('"invalid":false', '"invalid":true');
+    if (condition === 'forged comment') h.comment.user = { login: 'Creator', type: 'User' };
+    if (condition === 'unpublished profile') h.index.creators = [];
+    if (condition === 'blocked account') h.blocked.push({ githubId: 101 });
+    if (condition === 'running workflow') h.run.status = 'in_progress';
+    await h.resume();
+    assert.deepEqual(h.reruns, []);
+  });
+}
+
+test('failed resume remains retryable without consuming the waiting approval', async () => {
+  const h = waitingResumeHarness();
+  h.failRerun(true);
+  await assert.rejects(h.resume(), /transient rerun/);
+  assert.match(h.comment.body, /"resumed":false/);
+  h.failRerun(false);
+  await h.resume();
+  assert.deepEqual(h.reruns, [42]);
+});
+
+
+test('delayed profile merge confirmation resumes waiting themes before publication cleanup', async () => {
+  const calls = [];
+  const confirmed = { merged: true, merged_at: '2026-11-17T00:00:00Z' };
+  const finish = script.slice(script.indexOf('            async function finishPublication('),
+    script.indexOf('            if (current.merged)'));
+  const fn = vm.runInNewContext(finish + '\nfinishPublication', {
+    managedSubmission: false, context: { repo: {} }, pull: { number: 9 },
+    resumeWaitingThemes: async item => { assert.equal(item, confirmed); calls.push('resume'); },
+    announcePublication: async () => calls.push('announce'),
+    github: { rest: { pulls: { get: async () => { calls.push('poll'); return { data: confirmed }; } } } },
+    setTimeout: callback => callback(),
+  });
+  await fn({ merged: false });
+  assert.deepEqual(calls, ['poll', 'resume', 'announce']);
 });

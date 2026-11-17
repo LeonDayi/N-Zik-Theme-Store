@@ -49,7 +49,21 @@ function readProfileImages(profile, directory) {
   }));
 }
 
+function publishedCreator(candidate, id) {
+  const index = JSON.parse(candidate.read(candidate.base, creatorIndexPath));
+  assert(index.schemaVersion === 1 && Array.isArray(index.creators), 'Invalid published creator index.');
+  const entries = index.creators.filter(row => row.githubId === id);
+  if (!entries.length) return false;
+  assert(entries.length === 1, 'Duplicate published creator profile.');
+  const bytes = candidate.read(candidate.base, `catalog/creators/${id}/profile.json`);
+  const profile = JSON.parse(bytes);
+  assert(profile.githubId === id && sha256(bytes) === entries[0].profileSha256,
+    'Invalid published creator profile.');
+  return true;
+}
+
 function themeSubmission(candidate, id, login, themeId) {
+  assert(publishedCreator(candidate, id), 'The creator profile must be published before its themes.');
   const identifies = row => row.themeId === themeId;
   const { ancestor, base, head, changes, read } = candidate;
   const changedIndexes = changes.filter(file => themeIndexPaths.includes(file.filename));
@@ -319,4 +333,4 @@ function trustedCandidate(root, current) {
   };
 }
 
-module.exports = { themeSubmission, creatorSubmission, trustedCandidate };
+module.exports = { themeSubmission, creatorSubmission, trustedCandidate, publishedCreator };

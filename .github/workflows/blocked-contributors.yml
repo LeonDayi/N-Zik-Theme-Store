@@ -2,7 +2,7 @@ name: Blocked contributors
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review, labeled, closed]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled, closed]
   workflow_dispatch:
     inputs:
       pull_request_number:
@@ -10,6 +10,7 @@ on:
         required: false
         type: string
 permissions:
+  actions: write
   contents: write
   issues: write
   pull-requests: write
@@ -99,6 +100,79 @@ jobs:
             const reviewBranch = authorOwnsHead && /^nzik\/review-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})-([1-9]\d*)-([1-9]\d*)$/.exec(pull.head.ref);
             const isReview = authorOwnsHead && Boolean(reviewBranch) && reviewBranch[3] === String(pull.user.id);
             const reviewPath = isReview ? `catalog/themes/${reviewBranch[1]}/${reviewBranch[2]}/reviews.json` : '';
+            const waitingMarker = '<!-- nzik-creator-wait ';
+            function waitingState(comment) {
+              if (comment.user?.login !== 'github-actions[bot]' || comment.user?.type !== 'Bot' ||
+                  !comment.body?.startsWith(waitingMarker)) return null;
+              try { return JSON.parse(comment.body.slice(waitingMarker.length).split(' -->')[0]); }
+              catch { return null; }
+            }
+            async function waitingComments(number) {
+              return (await github.paginate(github.rest.issues.listComments, {
+                ...context.repo, issue_number: number, per_page: 100
+              })).map(comment => ({ comment, state: waitingState(comment) })).filter(item => item.state);
+            }
+            async function saveWaiting(number, state, comment) {
+              const body = waitingMarker + JSON.stringify(state) + ' -->\n' + (state.invalid
+                ? 'The waiting approval was invalidated. A maintainer must review and accept this theme again.'
+                : 'Theme accepted; waiting for the creator profile to be published. The approved revision will resume automatically after profile publication.');
+              if (comment) await github.rest.issues.updateComment({ ...context.repo, comment_id: comment.id, body });
+              else await github.rest.issues.createComment({ ...context.repo, issue_number: number, body });
+            }
+            async function approvalEvent(number) {
+              const events = await github.paginate(github.rest.issues.listEvents, {
+                ...context.repo, issue_number: number, per_page: 100
+              });
+              return events.filter(item => ['labeled', 'unlabeled'].includes(item.event) &&
+                ['accepted', 'refused', 'ban'].includes(item.label?.name)).at(-1);
+            }
+            function sameWaitingHead(state, item) {
+              const labels = new Set(item.labels.map(label => label.name));
+              return !state.invalid && state.authorId === item.user.id && item.state === 'open' && !item.draft &&
+                item.base.ref === 'main' && state.head === item.head.sha && state.branch === item.head.ref &&
+                state.repositoryId === item.head.repo?.id && item.head.repo?.owner?.id === state.authorId &&
+                labels.has('accepted') && !labels.has('refused') && !labels.has('ban');
+            }
+            async function waitingApprovalValid(state, item) {
+              if (!sameWaitingHead(state, item)) return false;
+              const latest = await approvalEvent(item.number);
+              return latest?.id === state.approvalId && latest.event === 'labeled' && latest.label.name === 'accepted';
+            }
+            async function resumeWaitingThemes(profile) {
+              if (!isSubmission || !profile.merged || profile.base.ref !== 'main') return;
+              const { data: base } = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
+              const index = JSON.parse(await readFile('catalog/creators/index.json', base.object.sha));
+              const entries = index.creators?.filter(row => row.githubId === profile.user.id);
+              if (index.schemaVersion !== 1 || entries?.length !== 1) return;
+              const bytes = await readFile(`catalog/creators/${profile.user.id}/profile.json`, base.object.sha);
+              if (require('node:crypto').createHash('sha256').update(bytes).digest('hex') !== entries[0].profileSha256 ||
+                  JSON.parse(bytes).githubId !== profile.user.id) throw new Error('Invalid published creator profile.');
+              const blocklist = JSON.parse(await readFile('catalog/creators/blocked.json', base.object.sha));
+              if (blocklist.schemaVersion !== 1 || !Array.isArray(blocklist.accounts)) throw new Error('Invalid moderation list');
+              if (blocklist.accounts.some(row => row.githubId === profile.user.id)) return;
+              const open = await github.paginate(github.rest.pulls.list, { ...context.repo, state: 'open', base: 'main', per_page: 100 });
+              for (const item of open) {
+                if (item.user.id !== profile.user.id || !/^nzik\/theme-[0-9a-f-]{36}$/.test(item.head.ref)) continue;
+                for (const { comment, state } of await waitingComments(item.number)) {
+                  if (state.resumed || !Number.isSafeInteger(state.runId) || !await waitingApprovalValid(state, item)) continue;
+                  const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: state.runId });
+                  if (run.event !== 'pull_request_target' || run.path !== '.github/workflows/blocked-contributors.yml' ||
+                      run.status !== 'completed') continue;
+                  // Rerun the original labeled event: the existing approval path rechecks
+                  // its maintainer, exact fork/head, live labels, blocklist and trusted base.
+                  await github.rest.actions.reRunWorkflow({ ...context.repo, run_id: state.runId });
+                  await saveWaiting(item.number, { ...state, resumed: true }, comment);
+                }
+              }
+            }
+            if (isThemeSubmission && (event.action === 'synchronize' || event.action === 'closed' ||
+                (event.action === 'unlabeled' && event.label?.name === 'accepted') ||
+                (event.action === 'labeled' && ['refused', 'ban'].includes(event.label?.name)))) {
+              for (const { comment, state } of await waitingComments(pull.number)) {
+                if (!state.invalid) await saveWaiting(pull.number, { ...state, invalid: true }, comment);
+              }
+            }
+            if (event.action === 'unlabeled') return;
             const labelAdded = event.action === 'labeled' ? event.label.name : '';
             if (labelAdded) {
               if ((!['accepted', 'refused', 'ban'].includes(labelAdded) && !Object.hasOwn(reasons, labelAdded)) || (pull.merged && labelAdded !== 'accepted')) return;
@@ -620,6 +694,7 @@ jobs:
               // The push can finish before GitHub updates the pull request metadata.
               for (let attempt = 0; attempt < 12; attempt++) {
                 if (confirmed?.merged && confirmed.merged_at) {
+                  await resumeWaitingThemes(confirmed);
                   if (!managedSubmission || !confirmed.head.repo || confirmed.head.repo.id === event.repository.id) {
                     await announcePublication(confirmed);
                     return;
@@ -690,7 +765,7 @@ jobs:
                 return;
               }
               const trustedRoot = require('node:path').join(process.env.GITHUB_WORKSPACE, 'moderation-base');
-              const { themeSubmission, creatorSubmission, trustedCandidate } =
+              const { themeSubmission, creatorSubmission, trustedCandidate, publishedCreator } =
                 require(require('node:path').join(trustedRoot, '.github/scripts/validate_submission.cjs'));
               // Pull request metadata can still report the base from its prior mergeability check.
               const { data: liveBase } = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
@@ -700,6 +775,22 @@ jobs:
               let repairedIndex;
               let repairedIndexPath;
               if (isThemeSubmission) {
+                const recorded = (await waitingComments(pull.number)).find(item => item.state.runId === context.runId);
+                if (recorded && !await waitingApprovalValid(recorded.state, current)) {
+                  core.setFailed('The waiting approval is no longer valid. Review and accept this theme again.');
+                  return;
+                }
+                if (!publishedCreator(candidate, pull.user.id)) {
+                  if (!recorded) {
+                    const approval = await approvalEvent(pull.number);
+                    if (approval?.event !== 'labeled' || approval.label.name !== 'accepted') return;
+                    await saveWaiting(pull.number, { runId: context.runId, authorId: pull.user.id,
+                      repositoryId: current.head.repo.id, branch: current.head.ref, head: current.head.sha,
+                      approvalId: approval.id, invalid: false, resumed: false });
+                  }
+                  core.notice('Theme publication is waiting for a published creator profile.');
+                  return;
+                }
                 const themeId = current.head.ref.slice('nzik/theme-'.length);
                 const { index, indexPath } = themeSubmission(candidate, pull.user.id, pull.user.login, themeId);
                 await validateReservedTags(current, files);

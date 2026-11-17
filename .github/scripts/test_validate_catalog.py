@@ -221,6 +221,16 @@ class CatalogValidationTest(unittest.TestCase):
         })
         with patch.object(catalog, "CATALOG", catalog_root):
             catalog.main()
+            creator_index = creator_root / "index.json"
+            saved_index = creator_index.read_bytes()
+            self.write_json(creator_index, {"schemaVersion": 1, "creators": []})
+            # Keep the unindexed profile off disk so the author check is the failure.
+            shutil.rmtree(creator_folder)
+            with self.assertRaisesRegex(ValueError, "creator profile must be published"):
+                catalog.main()
+            creator_folder.mkdir()
+            self.write_json(creator_folder / "profile.json", profile)
+            creator_index.write_bytes(saved_index)
             for minimum in (96, None):
                 with self.subTest(minimum=minimum):
                     self.manifest["compatibility"] = {"minVersionCode": minimum}
@@ -421,11 +431,14 @@ class CatalogValidationTest(unittest.TestCase):
         }]}
         path = self.write_json("index-v2.json", index)
         appearances = {version: catalog.load_schema("appearance", version) for version in (1, 2)}
-        self.assertEqual(catalog.validate_theme_index(path, 2, appearances, set()), {theme_id})
+        creator_ids = {self.manifest["author"]["githubId"]}
+        self.assertEqual(catalog.validate_theme_index(path, 2, appearances, set(), creator_ids), {theme_id})
+        with self.assertRaisesRegex(ValueError, "creator profile must be published"):
+            catalog.validate_theme_index(path, 2, appearances, set(), set())
         index["previewLimit"] = 64
         self.write_json(path, index)
         with self.assertRaisesRegex(ValueError, "exceeds the catalog previewLimit of 64"):
-            catalog.validate_theme_index(path, 2, appearances, set())
+            catalog.validate_theme_index(path, 2, appearances, set(), creator_ids)
 
     def test_empty_files_are_rejected_even_with_matching_hash(self):
         path = self.folder / "empty.webp"

@@ -121,7 +121,7 @@ jobs:
               const body = waitingMarker + JSON.stringify(state) + ' -->\n' + (state.invalid
                 ? 'The waiting approval was invalidated. A maintainer must review and accept this theme again.'
                 : 'Theme accepted; waiting for the creator profile to be published. The approved revision will resume automatically after profile publication.');
-              if (comment) await github.rest.issues.updateComment({ ...context.repo, comment_id: comment.id, body });
+              if (comment) await postComment({ ...context.repo, issue_number: number, comment_id: comment.id, body });
               else await postComment({ ...context.repo, issue_number: number, body });
             }
             async function approvalEvent(number) {
@@ -180,12 +180,48 @@ jobs:
             }
             // Keep comments deliverable after publication/refusal has locked the PR.
             async function postComment(args) {
-              const { data: item } = await github.rest.pulls.get({ ...context.repo, pull_number: args.issue_number });
-              if (!item.locked) return github.rest.issues.createComment(args);
-              await github.rest.issues.unlock({ ...context.repo, issue_number: args.issue_number });
-              try { return await github.rest.issues.createComment(args); }
-              finally { await github.rest.issues.lock({ ...context.repo, issue_number: args.issue_number,
-                ...(item.active_lock_reason ? { lock_reason: item.active_lock_reason } : {}) }); }
+              // GitHub also rejects PATCH of an existing bot comment on locked
+              // issues, with the misleading "Unable to create comment" message.
+              const { issue_number = pull.number, comment_id, ...parameters } = args;
+              const issue = { ...context.repo, issue_number };
+              let { data: item } = await github.rest.issues.get(issue);
+              let restoreLock = Boolean(item.locked);
+              let lockReason = item.active_lock_reason;
+              const write = () => comment_id
+                ? github.rest.issues.updateComment({ ...parameters, comment_id })
+                : github.rest.issues.createComment({ ...parameters, issue_number });
+              let lockedResponse = false;
+              try {
+                for (let attempt = 0; attempt < 5; attempt++) {
+                  if (item.locked || lockedResponse) {
+                    restoreLock = true;
+                    lockReason ??= item.active_lock_reason;
+                    await github.rest.issues.unlock(issue);
+                    // Unlock visibility can lag behind its successful response.
+                    for (let poll = 0; poll < 5; poll++) {
+                      ({ data: item } = await github.rest.issues.get(issue));
+                      if (!item.locked) break;
+                      await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                  }
+                  try { return await write(); }
+                  catch (error) {
+                    const message = error.response?.data?.message ?? error.message ?? '';
+                    if (error.status !== 403 || !/issue is locked/i.test(message)) throw error;
+                    // Even a fresh issue read may briefly disagree with the
+                    // comment service. Retry only this known lock response.
+                    restoreLock = true;
+                    lockedResponse = true;
+                    ({ data: item } = await github.rest.issues.get(issue));
+                    lockReason ??= item.active_lock_reason;
+                    if (attempt === 4) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                  }
+                }
+              } finally {
+                if (restoreLock) await github.rest.issues.lock({ ...issue,
+                  ...(lockReason ? { lock_reason: lockReason } : {}) });
+              }
             }
             const moderationPath = '.github/workflows/blocked-contributors.yml';
             const validationPath = '.github/workflows/validate-catalog.yml';
@@ -682,7 +718,7 @@ jobs:
                 ? 'Submission branch cleanup completed.'
                 : `Submission branch cleanup is pending. The bot will only ${state.decision === 'merged' ? 'delete the branch at' : 'reset'} commit ${state.head}; newer work is preserved. ` +
                   `After restoring fork access, rerun this job or run Blocked contributors with pull_request_number=${pull.number}.`);
-              if (comment) await github.rest.issues.updateComment({ ...context.repo, comment_id: comment.id, body });
+              if (comment) await postComment({ ...context.repo, comment_id: comment.id, body });
               else await postComment({ ...target, body });
               if (complete) {
                 try { await github.rest.issues.removeLabel({ ...target, name: 'cleanup pending' }); }
@@ -706,7 +742,7 @@ jobs:
                 catch (error) { if (error.status !== 404) throw error; }
               }
               const pending = await cleanupComment();
-              if (pending) await github.rest.issues.updateComment({ ...context.repo, comment_id: pending.id,
+              if (pending) await postComment({ ...context.repo, comment_id: pending.id,
                 body: '<!-- nzik-cleanup-cancelled -->\nCleanup was cancelled because newer submission work was detected. ' +
                   'The branch was preserved for a fresh review.' });
               await postComment({ ...target, body: marker + '\n' +

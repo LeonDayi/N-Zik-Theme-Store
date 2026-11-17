@@ -211,6 +211,7 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
       return { data: { object: { sha: refHead } } };
     } },
     issues: {
+      get: async () => ({ data: { locked: current.locked, active_lock_reason: current.active_lock_reason } }),
       createLabel: async () => {},
       addLabels: async args => { args.labels.forEach(name => labels.add(name)); },
       removeLabel: async args => { labels.delete(args.name); },
@@ -220,7 +221,10 @@ function lifecycle({ liveHead = original, decision = 'refused', resetFailure = f
         if (current.locked) throw new Error('Unable to create comment because issue is locked');
         comments.push({ id: comments.length + 1, user: { login: 'github-actions[bot]', type: 'Bot' }, body: args.body });
       },
-      updateComment: async args => { comments.find(comment => comment.id === args.comment_id).body = args.body; },
+      updateComment: async args => {
+        if (current.locked) throw Object.assign(new Error('Unable to create comment because issue is locked.'), { status: 403 });
+        comments.find(comment => comment.id === args.comment_id).body = args.body;
+      },
       unlock: async () => { current.locked = false; },
       lock: async () => { current.locked = true; },
     },
@@ -805,6 +809,7 @@ function waitingResumeHarness() {
     script.indexOf('            const labelAdded'));
   const context = vm.createContext({ Buffer, require, github, isSubmission: true,
     context: { repo: { owner: 'N-Zik-Group', repo: 'N-Zik-Theme-Store' } },
+    postComment: args => github.rest.issues.updateComment(args),
     readFile: async path => {
       if (path.endsWith('index.json')) return JSON.stringify(index);
       if (path.endsWith('profile.json')) return profileBytes;
@@ -1053,9 +1058,8 @@ test('locked comment delivery restores lock even if comment creation fails', asy
     script.indexOf('            const moderationPath'));
   const calls = [];
   const post = vm.runInNewContext(helpers + '\npostComment', {
-    context: { repo: {} }, github: { rest: {
-      pulls: { get: async () => ({ data: { locked: true } }) },
-      issues: { unlock: async () => calls.push('unlock'), lock: async () => calls.push('lock'),
+    context: { repo: {} }, pull: { number: 7 }, setTimeout: callback => callback(), github: { rest: {
+      issues: { get: async () => ({ data: { locked: true } }), unlock: async () => calls.push('unlock'), lock: async () => calls.push('lock'),
         createComment: async () => { calls.push('comment'); throw new Error('Network failure'); } }
     } }
   });
@@ -1103,3 +1107,79 @@ for (const permission of ['triage', 'write', 'maintain', 'admin']) {
     }
   });
 }
+
+for (const operation of ['create', 'update']) {
+  test(`locked ${operation} uses issue state, retries comment-service lag and restores lock reason`, async () => {
+    const helpers = script.slice(script.indexOf('            async function postComment('),
+      script.indexOf('            const moderationPath'));
+    const calls = [];
+    let locked = true;
+    let issueReads = 0;
+    let lagReads = 0;
+    let writes = 0;
+    const write = async args => {
+      calls.push(operation);
+      writes++;
+      if (writes === 1) throw Object.assign(new Error('Unable to create comment because issue is locked.'), { status: 403 });
+      assert.equal(locked, false);
+      assert.equal(args.body, 'updated status');
+      if (operation === 'update') assert.equal(args.comment_id, 123);
+      return { data: { id: 123 } };
+    };
+    const post = vm.runInNewContext(helpers + '\npostComment', {
+      context: { repo: { owner: 'test', repo: 'test' } }, pull: { number: 7 }, setTimeout: callback => callback(),
+      github: { rest: {
+        pulls: { get: async () => { throw new Error('Pull lock snapshot must not be used'); } },
+        issues: {
+          get: async () => {
+            issueReads++;
+            if (issueReads === 1) return { data: { locked: false } }; // stale even on issues endpoint
+            if (lagReads > 0) { lagReads--; return { data: { locked: true, active_lock_reason: 'spam' } }; }
+            return { data: { locked, active_lock_reason: 'spam' } };
+          },
+          unlock: async () => { calls.push('unlock'); locked = false; lagReads = 2; },
+          lock: async args => { calls.push('lock'); locked = true; assert.equal(args.lock_reason, 'spam'); },
+          createComment: write, updateComment: write
+        }
+      } }
+    });
+    await post({ issue_number: 7, ...(operation === 'update' ? { comment_id: 123 } : {}), body: 'updated status' });
+    assert.deepEqual(calls, [operation, 'unlock', operation, 'lock']);
+    assert.ok(issueReads >= 4, 'Unlock propagation must be polled');
+    assert.equal(locked, true);
+  });
+}
+
+test('locked comment retries are bounded and restore lock when every write is rejected', async () => {
+  const helpers = script.slice(script.indexOf('            async function postComment('),
+    script.indexOf('            const moderationPath'));
+  let writes = 0;
+  let restored = false;
+  const post = vm.runInNewContext(helpers + '\npostComment', {
+    context: { repo: {} }, pull: { number: 7 }, setTimeout: callback => callback(), github: { rest: { issues: {
+      get: async () => ({ data: { locked: false } }), unlock: async () => {}, lock: async () => { restored = true; },
+      updateComment: async () => { writes++; throw Object.assign(new Error('Unable to create comment because issue is locked.'), { status: 403 }); }
+    } } }
+  });
+  await assert.rejects(post({ comment_id: 123, body: 'status' }), /issue is locked/);
+  assert.equal(writes, 5);
+  assert.equal(restored, true);
+});
+
+test('locked cleanup updates the existing bot record even when pull lock snapshot is stale', async () => {
+  const h = lifecycle({ decision: 'accepted', deletionFailure: true });
+  await h.run();
+  const count = h.comments.length;
+  const getPull = h.github.rest.pulls.get;
+  h.github.rest.pulls.get = async args => {
+    const response = await getPull(args);
+    response.data.locked = false;
+    return response;
+  };
+  h.faults.deletion = false;
+  await h.run({ dispatch: true });
+  assert.equal(h.current.locked, true);
+  assert.equal(h.comments.length, count, 'Existing cleanup comment must be patched, not duplicated');
+  assert.equal(h.labels.has('cleanup pending'), false);
+  assert.ok(h.comments.some(comment => comment.body.includes('"completed":true')));
+});

@@ -42,6 +42,11 @@
       "themeId": "7b30abe9-68cf-4bb3-9b56-a05c39748b9d",
       "revision": 1,
       "manifestSha256": "d18786be07161eb66e5cd7dd9ddd6c7c095ee2c89fd9ebffe7349270af22f56e"
+    },
+    {
+      "themeId": "f02f0f57-6ed2-42d5-b4a1-4beac21d458c",
+      "revision": 1,
+      "manifestSha256": "007f7aabacf28bb3930a1980bd6a94a15f03be391e4ba325182a816b8cced77a"
     }
   ]
 }

@@ -73,7 +73,7 @@ jobs:
           node .github/scripts/roadmap.mjs reconcile
       - name: Save the caller's reconciliation snapshot
         if: '!inputs.dry_run'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: roadmap-state
           path: ${{ runner.temp }}/roadmap-state/state.json
